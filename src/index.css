@@ -1,0 +1,263 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, blinkmacsystemfont, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-display: "Space Grotesk", sans-serif;
+  
+  --color-zs-blau-schwarz: #041422;
+  --color-zs-signal-gelb: #F9FF00;
+  --color-zs-beige: #F5F2EC;
+  --color-zs-textil-gruen: #58B49D;
+  --color-zs-papier-braun: #BA8B68;
+  --color-zs-chemie-violett: #7F6DBA;
+  
+  --animate-slide-in: slideIn 0.3s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  --animate-fade-in: fadeIn 0.2s ease-out forwards;
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Base Body Styles */
+body {
+  background-color: #f8fafc; /* Crisp professional slate-50 background */
+  color: #041422; /* zs-blau-schwarz text */
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Custom Scrollbar Styles for elegance */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(4, 20, 34, 0.15);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(4, 20, 34, 0.3);
+}
+
+/* Custom Print Styles for BAFA verify reports and audit compliant PDF output */
+@media print {
+  /* 1. Global Reset of Viewports to avoid scroll/viewport clipping */
+  html, body, #root, .min-h-screen, .flex-grow, .h-screen, .lg\:h-screen {
+    height: auto !important;
+    min-height: auto !important;
+    overflow: visible !important;
+    display: block !important;
+    position: static !important;
+    background: white !important;
+    color: #111111 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  body {
+    font-size: 9.5pt !important;
+    line-height: 1.4 !important;
+  }
+
+  /* 2. Hide sidebars, navigation layout elements, popups, and search widgets */
+  aside, 
+  header, 
+  nav, 
+  option, 
+  select, 
+  input, 
+  .no-print, 
+  .print\:hidden,
+  [role="dialog"], 
+  .modal, 
+  .modal-backdrop, 
+  #search-trigger, 
+  .search-modal {
+    display: none !important;
+  }
+
+  /* Hide textareas except read-only reports inside the reporting section */
+  textarea {
+    display: none !important;
+  }
+  
+  .bg-slate-900 textarea, textarea[readonly] {
+    display: block !important;
+  }
+
+  /* 3. Hide all interactive buttons except critical print-friendly statuses */
+  button, 
+  .btn, 
+  [role="button"] {
+    display: none !important;
+  }
+
+  /* Ensure we can see status badges even though they are technically button tags, but style them as clean static text */
+  table td button, 
+  table td .status-badge,
+  table td [class*="status"] {
+    display: inline-block !important;
+    border: 1px solid #cbd5e1 !important;
+    background: #f1f5f9 !important;
+    color: #334155 !important;
+    font-weight: bold !important;
+    border-radius: 4px !important;
+    padding: 2px 6px !important;
+    font-size: 8pt !important;
+    text-transform: uppercase !important;
+    box-shadow: none !important;
+  }
+
+  /* 4. Reset main layout area spacing to 100% width */
+  main {
+    display: block !important;
+    position: static !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
+  main > div {
+    max-width: 100% !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  /* 5. Clean, Professional Table Styles */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    page-break-inside: auto !important;
+    margin-bottom: 2rem !important;
+    font-size: 8.5pt !important;
+  }
+  
+  tr {
+    page-break-inside: avoid !important;
+    page-break-after: auto !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  th {
+    background-color: #f1f5f9 !important;
+    color: #0f172a !important;
+    font-weight: 700 !important;
+    border: 1px solid #cbd5e1 !important;
+    padding: 6px 8px !important;
+    text-align: left !important;
+  }
+
+  td {
+    border: 1px solid #e2e8f0 !important;
+    color: #334155 !important;
+    padding: 6px 8px !important;
+  }
+
+  /* Zebra striping to assist auditing */
+  tr:nth-child(even) td {
+    background-color: #f8fafc !important;
+  }
+
+  /* Hide edit cues or interactive edit icon elements inside table cells during print */
+  td span span {
+    border: none !important;
+    background: transparent !important;
+    padding: 0 !important;
+    color: inherit !important;
+  }
+  td span span span {
+    display: none !important; /* Hide pencil icon */
+  }
+
+  /* 6. Card Containers styling to prevent split-border clipping */
+  .card, 
+  div[class*="bg-white"], 
+  div[class*="rounded-2xl"], 
+  div[class*="rounded-xl"] {
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+    background: white !important;
+    page-break-inside: avoid !important;
+    margin-bottom: 1.5rem !important;
+    padding: 1rem !important;
+  }
+
+  /* Pre-formatted report text should wrap cleanly */
+  textarea, pre {
+    white-space: pre-wrap !important;
+    word-wrap: break-word !important;
+    background-color: #f8fafc !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #0f172a !important;
+    font-size: 8pt !important;
+    width: 100% !important;
+    padding: 8px !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* Header and Section breaks */
+  h1, h2, h3, h4, h5 {
+    color: #0f172a !important;
+    page-break-after: avoid !important;
+    page-break-inside: avoid !important;
+    font-weight: bold !important;
+  }
+
+  h1 {
+    font-size: 16pt !important;
+    border-bottom: 2px solid #0f172a !important;
+    padding-bottom: 4px !important;
+    margin-bottom: 1.5rem !important;
+  }
+
+  h2 {
+    font-size: 13pt !important;
+    border-bottom: 1px solid #94a3b8 !important;
+    padding-bottom: 3px !important;
+    margin-top: 2rem !important;
+    margin-bottom: 1rem !important;
+  }
+
+  h3 {
+    font-size: 11pt !important;
+    margin-top: 1.5rem !important;
+    margin-bottom: 0.5rem !important;
+  }
+
+  /* Recharts dimensions styling for printing */
+  .recharts-responsive-container {
+    width: 100% !important;
+    height: 300px !important;
+    overflow: visible !important;
+  }
+}
+

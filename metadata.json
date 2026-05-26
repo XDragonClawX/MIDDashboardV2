@@ -1,0 +1,6 @@
+{
+  "name": "MiD-PCT — Fördermittel-ERP",
+  "description": "Ein hochmodernes, offline-fähiges Fördermittel-ERP für das Transformationsprojekt 'Made in Düren – Papier, Chemie, Textil' der WIN.DN GmbH.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
