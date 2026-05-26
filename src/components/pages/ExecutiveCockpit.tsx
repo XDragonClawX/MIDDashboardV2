@@ -109,7 +109,7 @@ export default function ExecutiveCockpit({
           <div className="absolute bottom-0 left-0 right-0 h-1 bg-zs-signal-gelb"></div>
         </div>
 
-        <div id="kpi-lho" className="bg-white p-5 rounded-2xl border border-zinc-200/80 shadow-xs relative overflow-hidden transition-all hover:shadow-md">
+        <div id="kpi-lho" className="bg-white p-5 rounded-2xl border border-zinc-200/80 shadow-xs relative overflow-hidden transition-all hover:scale-[1.02] hover:shadow-md">
           <div className="text-[10px] font-mono font-semibold tracking-wider text-zinc-400 uppercase">
             LHO EINGEGANGEN
           </div>

@@ -22,6 +22,7 @@ export default function VergabePage({
   // Local states
   const [showFormModal, setShowFormModal] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
 
   // Form fields
   const [vTitel, setVTitel] = useState('');
@@ -75,9 +76,7 @@ export default function VergabePage({
   };
 
   const handleDeleteClick = (id: number, title: string) => {
-    if (confirm(`Möchten Sie die Vergabe "${title}" wirklich löschen?`)) {
-      onDeleteVergabe(id);
-    }
+    setDeleteConfirmId(id);
   };
 
   const handleFormSubmit = (e: React.FormEvent) => {
@@ -223,20 +222,43 @@ export default function VergabePage({
                           ⚠ BAFA fehlt
                         </div>
                       )}
-                      <div className="flex gap-1.5 mt-2 pt-1 border-t border-zinc-100 text-[10px] font-mono">
-                        <button
-                          onClick={() => handleEditClick(v)}
-                          className="px-2 py-0.5 border border-zinc-200 rounded hover:bg-zs-blau-schwarz hover:text-white hover:border-zs-blau-schwarz transition-all cursor-pointer flex-1"
-                        >
-                          Bearbeiten
-                        </button>
-                        <button
-                          onClick={() => handleDeleteClick(v.id, v.titel)}
-                          className="px-1 py-0.5 text-red-500 rounded hover:bg-red-50 transition-all cursor-pointer"
-                        >
-                          ✕
-                        </button>
-                      </div>
+                      {deleteConfirmId === v.id ? (
+                        <div className="flex gap-1.5 items-center bg-red-50 p-1 px-1.5 rounded border border-red-200 mt-2 w-full justify-between">
+                          <span className="text-[10px] text-red-750 font-bold font-mono">Löschen?</span>
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => {
+                                onDeleteVergabe(v.id);
+                                setDeleteConfirmId(null);
+                              }}
+                              className="px-2 py-0.5 rounded bg-red-600 text-white text-[9px] font-bold hover:bg-red-700 transition cursor-pointer"
+                            >
+                              Ja
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirmId(null)}
+                              className="px-2 py-0.5 rounded bg-zinc-200 text-zinc-700 text-[9px] font-bold hover:bg-zinc-350 transition cursor-pointer"
+                            >
+                              Nein
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex gap-1.5 mt-2 pt-1 border-t border-zinc-100 text-[10px] font-mono">
+                          <button
+                            onClick={() => handleEditClick(v)}
+                            className="px-2 py-0.5 border border-zinc-200 rounded hover:bg-zs-blau-schwarz hover:text-white hover:border-zs-blau-schwarz transition-all cursor-pointer flex-1"
+                          >
+                            Bearbeiten
+                          </button>
+                          <button
+                            onClick={() => handleDeleteClick(v.id, v.titel)}
+                            className="px-1 py-0.5 text-red-500 rounded hover:bg-red-50 transition-all cursor-pointer"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))
                 )}
@@ -303,18 +325,41 @@ export default function VergabePage({
                       </span>
                     </td>
                     <td className="p-3 text-right space-x-1.5 whitespace-nowrap">
-                      <button
-                        onClick={() => handleEditClick(v)}
-                        className="px-2 py-1 rounded bg-zinc-100 hover:bg-zs-blau-schwarz hover:text-white transition-all text-[11px] font-semibold text-zinc-800 cursor-pointer"
-                      >
-                        Bearbeiten
-                      </button>
-                      <button
-                        onClick={() => handleDeleteClick(v.id, v.titel)}
-                        className="px-2 py-1 rounded text-red-500 hover:bg-red-50 transition-all text-[11px] font-semibold cursor-pointer"
-                      >
-                        Löschen
-                      </button>
+                      {deleteConfirmId === v.id ? (
+                        <div className="inline-flex gap-1.5 items-center bg-red-50 p-1 px-1.5 rounded border border-red-200">
+                          <span className="text-[10px] text-red-700 font-bold font-mono">Löschen?</span>
+                          <button
+                            onClick={() => {
+                              onDeleteVergabe(v.id);
+                              setDeleteConfirmId(null);
+                            }}
+                            className="px-2 py-0.5 rounded bg-red-600 text-white text-[9px] font-bold hover:bg-red-700 transition cursor-pointer"
+                          >
+                            Ja
+                          </button>
+                          <button
+                            onClick={() => setDeleteConfirmId(null)}
+                            className="px-2 py-0.5 rounded bg-zinc-200 text-zinc-750 text-[9px] font-bold hover:bg-zinc-300 transition cursor-pointer"
+                          >
+                            Nein
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => handleEditClick(v)}
+                            className="px-2 py-1 rounded bg-zinc-100 hover:bg-zs-blau-schwarz hover:text-white transition-all text-[11px] font-semibold text-zinc-800 cursor-pointer"
+                          >
+                            Bearbeiten
+                          </button>
+                          <button
+                            onClick={() => handleDeleteClick(v.id, v.titel)}
+                            className="px-2 py-1 rounded text-red-500 hover:bg-red-50 transition-all text-[11px] font-semibold cursor-pointer"
+                          >
+                            Löschen
+                          </button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 ))

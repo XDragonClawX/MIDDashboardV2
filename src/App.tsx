@@ -21,6 +21,32 @@ import { loadLocalStorage as loadFromStorage, saveLocalStorage as saveToStorage 
 const INITIAL_MATCHES: PartnerMatch[] = [];
 const INITIAL_BUCHUNGEN: Buchung[] = [];
 
+function sanitizeAndDeduplicate<T extends { id: number }>(items: T[], fallbackSeed: T[] = []): T[] {
+  const list = Array.isArray(items) && items.length > 0 ? items : fallbackSeed;
+  const seenIds = new Set<number>();
+  const verifiedList: T[] = [];
+  
+  list.forEach((item) => {
+    if (item && typeof item.id === 'number' && !isNaN(item.id) && !seenIds.has(item.id)) {
+      seenIds.add(item.id);
+      verifiedList.push(item);
+    } else if (item) {
+      verifiedList.push({ ...item, id: -1 });
+    }
+  });
+
+  let nextId = verifiedList.length > 0 ? Math.max(...verifiedList.map(x => x.id)) + 1 : 1;
+  if (nextId < 1 || isNaN(nextId)) nextId = 1;
+
+  return verifiedList.map((item) => {
+    if (item.id === -1) {
+      const newId = nextId++;
+      return { ...item, id: newId };
+    }
+    return item;
+  });
+}
+
 
 // Lucide icons
 import {
@@ -63,25 +89,25 @@ export default function App() {
 
   // States with Lazy Initializations
   const [personal, setPersonal] = useState<PersonalEintrag[]>(() =>
-    loadFromStorage('midpct_personal', INITIAL_PERSONAL)
+    sanitizeAndDeduplicate(loadFromStorage('midpct_personal', INITIAL_PERSONAL))
   );
   const [rechnungen, setRechnungen] = useState<Rechnungsbeleg[]>(() =>
-    loadFromStorage('midpct_rechnungen', INITIAL_RECHNUNGEN)
+    sanitizeAndDeduplicate(loadFromStorage('midpct_rechnungen', INITIAL_RECHNUNGEN))
   );
   const [mittelabrufe, setMittelabrufe] = useState<Mittelabruf[]>(() =>
-    loadFromStorage('midpct_mittelabrufe', INITIAL_MITTELABRUFE)
+    sanitizeAndDeduplicate(loadFromStorage('midpct_mittelabrufe', INITIAL_MITTELABRUFE))
   );
   const [vergaben, setVergaben] = useState<Vergabe[]>(() =>
-    loadFromStorage('midpct_vergaben', INITIAL_VERGABEN)
+    sanitizeAndDeduplicate(loadFromStorage('midpct_vergaben', INITIAL_VERGABEN))
   );
   const [partners, setPartners] = useState<Partner[]>(() =>
-    loadFromStorage('midpct_partners', INITIAL_PARTNERS)
+    sanitizeAndDeduplicate(loadFromStorage('midpct_partners', INITIAL_PARTNERS))
   );
   const [matches, setMatches] = useState<PartnerMatch[]>(() =>
     loadFromStorage('midpct_matches', INITIAL_MATCHES)
   );
   const [buchungen, setBuchungen] = useState<Buchung[]>(() =>
-    loadFromStorage('midpct_buchungen', INITIAL_BUCHUNGEN)
+    sanitizeAndDeduplicate(loadFromStorage('midpct_buchungen', INITIAL_BUCHUNGEN))
   );
 
   const [mitarbeiterList, setMitarbeiterList] = useState<string[]>(() =>
@@ -92,27 +118,12 @@ export default function App() {
 
   // Use Case Notes state (Record<usecaseId, Note[]>)
   const [ucNotes, setUcNotes] = useState<{ [key: number]: any[] }>(() =>
-    loadFromStorage('midpct_uc_notes', {
-      1: [
-        { id: 101, text: "Erfolgreicher Kick-off Workshop mit der GKD Group am Standort Düren.", type: "meeting", date: "2025-05-12" },
-        { id: 102, text: "Vorzeitiger Maßnahmenbeginn durch das BAFA genehmigt.", type: "meilenstein", date: "2025-06-01" },
-      ],
-      2: [
-        { id: 201, text: "Meilenstein: Festlegung der Pilot-Kompaktieranlage für Kreislauf-Papier.", type: "meilenstein", date: "2025-06-10" },
-      ],
-      3: [
-        { id: 301, text: "Planungsmeeting mit Smart-Grid-Softwareanbietern.", type: "meeting", date: "2025-05-18" },
-      ]
-    })
+    loadFromStorage('midpct_uc_notes', {})
   );
 
   // Links of associated invoice IDs directly with Use Case IDs
   const [ucInvoices, setUcInvoices] = useState<{ [key: number]: number[] }>(() =>
-    loadFromStorage('midpct_uc_invoices', {
-      1: [1, 3], // GKD linked to early invoices
-      2: [2],    // Sihl linked to invoice 2
-      3: []
-    })
+    loadFromStorage('midpct_uc_invoices', {})
   );
 
   // State Audit logs
@@ -164,91 +175,63 @@ export default function App() {
   }, []);
 
   // Use Case Seed structures
-  const [usecases, setUsecases] = useState<any[]>(() =>
-    loadFromStorage('midpct_usecases', [
-      {
-        id: 1,
-        titel: 'Filtrationsgewebe-Ausrüstung (Batch 1)',
-        unternehmen: 'GKD Gebr. Kufferath AG',
-        sektor: 'Kreislaufwirtschaft Gewebe',
-        loesung: 'Nassfiltration & KI-gestützte Porenbestimmung',
-        branche: 'Textil',
-        reifegrad: 'Pilotbetrieb',
-        batch: 'Batch 1',
-        status: 'aktiv',
-        erfolgswahrscheinlichkeit: 85,
-        politischeRelevanz: 4,
-        deadline: '2026-12-15',
-        risiken: 'Übertragbarkeit der Gewebemaße auf ausländische Webanlagen.',
-        notizen: 'Erster Meilenstein der Gewebeproben wurde erfolgreich abgenommen.',
-        sharepointUrl: 'https://windn.sharepoint.com/sites/MiD-PCT/Freigegebene%20Dokumente/Use-Cases/GKD-Textil',
-        websiteUrl: 'https://zukunftsstoff.de/use-cases/gkd-filtration',
-        projektbeschreibung: 'Erhöhung der Standzeiten von industriellen Filteranlagen durch innovative Porenimprägnierungen. Reduziert chemische Lösungsabfälle im Dürener Werk.'
-      },
-      {
-        id: 2,
-        titel: 'Silicium-Beschichtungsreaktor (Batch 1)',
-        unternehmen: 'Sihl GmbH',
-        sektor: 'Rolle-zu-Rolle Papier',
-        loesung: 'Wasserlösliche Barrierebeschichtungen',
-        branche: 'Papier',
-        reifegrad: 'Pilotbetrieb',
-        batch: 'Batch 1',
-        status: 'aktiv',
-        erfolgswahrscheinlichkeit: 90,
-        politischeRelevanz: 5,
-        deadline: '2026-10-20',
-        risiken: 'Haftung auf dünnen Trägerbahnen bei hohen Walzgeschwindigkeiten.',
-        notizen: 'Zustimmung zum vorzeitigen Maßnahmenbeginn liegt vor.',
-        sharepointUrl: 'https://windn.sharepoint.com/sites/MiD-PCT/Freigegebene%20Dokumente/Use-Cases/Sihl-Papier',
-        websiteUrl: 'https://zukunftsstoff.de/use-cases/sihl-papierbeschichtung',
-        projektbeschreibung: 'Entwicklung barrierefreie Papiere für Lebensmittelverpackungen zur Einsparung von PE/ALU-Mehrschichtfolien. Unterstützt reibungslosen Altpapier-Recyclingkreislauf.'
-      },
-      {
-        id: 3,
-        titel: 'Wasserstoff-Netzkoppler (Batch 1)',
-        unternehmen: 'Leitungspartner GmbH',
-        sektor: 'Wasserstoff-Kreislaufchemie',
-        loesung: 'Leitungssimulation via Druckwellen-Vektorisierung',
-        branche: 'Chemie',
-        reifegrad: 'Konzept',
-        batch: 'Batch 1',
-        status: 'aktiv',
-        erfolgswahrscheinlichkeit: 65,
-        politischeRelevanz: 4,
-        deadline: '2027-03-15',
-        risiken: 'Geringe Beimischungsraten von regionalen H2-Erzeugern.',
-        notizen: 'Vorbereitende Messkonzepte im Dürener Stadtgebiet gestartet.',
-        sharepointUrl: 'https://windn.sharepoint.com/sites/MiD-PCT/Freigegebene%20Dokumente/Use-Cases/Leitungspartner-H2',
-        websiteUrl: 'https://zukunftsstoff.de/use-cases/lp-stadtgasnetzkopplung',
-        projektbeschreibung: 'Nachweis der Eignung bestehender Mitteldruckgasleitungen für bis zu 20% Wasserstoffbeimischung der chemischen Industrieunternehmen im Netzwerk.'
+  const [usecases, setUsecases] = useState<any[]>(() => {
+    const loaded = loadFromStorage('midpct_usecases', []);
+    const filtered = loaded.filter((uc: any) => {
+      if (!uc) return false;
+      const batchStr = String(uc.batch || '').replace(/\s+/g, '').toLowerCase();
+      if (batchStr === 'batch1' || batchStr.includes('batch1')) {
+        return false;
       }
-    ])
-  );
+      
+      const titleLower = String(uc.titel || '').toLowerCase();
+      if (
+        titleLower.includes('chemisches recycling von kunststoff') ||
+        titleLower.includes('ki-basierter chatbot für den maschinenpark') ||
+        titleLower.includes('starke netze — peak-shaving') ||
+        titleLower.includes('starke netze - peak-shaving mit ki')
+      ) {
+        return false;
+      }
+      
+      return true;
+    });
+    return sanitizeAndDeduplicate(filtered);
+  });
   useEffect(() => { saveToStorage('midpct_usecases', usecases); }, [usecases]);
+
+  // Deleted use case titles tracking to prevent auto-sync from re-adding them
+  const [deletedUcs, setDeletedUcs] = useState<string[]>(() =>
+    loadFromStorage('midpct_deleted_usecases', [])
+  );
+  useEffect(() => { saveToStorage('midpct_deleted_usecases', deletedUcs); }, [deletedUcs]);
 
   // Central log writer helper to track revision entries
   const writeLog = (module: string, action: string, details: string) => {
-    const newId = logs.length > 0 ? Math.max(...logs.map((l) => l.id)) + 1 : 1;
-    const entry: AuditLog = {
-      id: newId,
-      timestamp: new Date().toISOString(),
-      module,
-      action,
-      details,
-      user: 'WIN.DN-Controller',
-    };
-    setLogs((prev) => [entry, ...prev]);
+    setLogs((prev) => {
+      const newId = prev.length > 0 ? Math.max(...prev.map((l) => l.id)) + 1 : 1;
+      const entry: AuditLog = {
+        id: newId,
+        timestamp: new Date().toISOString(),
+        module,
+        action,
+        details,
+        user: 'WIN.DN-Controller',
+      };
+      return [entry, ...prev];
+    });
   };
 
   // ── APP GLOBAL HANDLERS ──
 
   // Personal Page Handlers
   const handleAddPersonal = (eintrag: Omit<PersonalEintrag, 'id'>) => {
-    const nextId = personal.length > 0 ? Math.max(...personal.map((x) => x.id)) + 1 : 1;
-    const item = { ...eintrag, id: nextId };
-    setPersonal((prev) => [...prev, item]);
-    writeLog('PERSONAL', 'CREATE', `Lohnbeleg für ${item.mitarbeiter} (${item.monat}/${item.jahr}) eingepflegt. AG-Kosten: ${item.agKosten} €`);
+    setPersonal((prev) => {
+      const nextId = prev.length > 0 ? Math.max(...prev.map((x) => x.id)) + 1 : 1;
+      const item = { ...eintrag, id: nextId };
+      writeLog('PERSONAL', 'CREATE', `Lohnbeleg für ${item.mitarbeiter} (${item.monat}/${item.jahr}) eingepflegt. AG-Kosten: ${item.agKosten} €`);
+      return [...prev, item];
+    });
   };
 
   const handleUpdatePersonal = (id: number, updated: Partial<PersonalEintrag>) => {
@@ -285,10 +268,12 @@ export default function App() {
 
   // Rechnungen (Expense Invoices) handlers
   const handleAddRechnung = (beleg: Omit<Rechnungsbeleg, 'id'>) => {
-    const nextId = rechnungen.length > 0 ? Math.max(...rechnungen.map((x) => x.id)) + 1 : 1;
-    const item = { ...beleg, id: nextId };
-    setRechnungen((prev) => [...prev, item]);
-    writeLog('EXPENSES', 'CREATE', `Sachbeleg ${item.rechnungsnummer} von ${item.rechnungssteller} über ${item.betragNetto} € netto eingebucht.`);
+    setRechnungen((prev) => {
+      const nextId = prev.length > 0 ? Math.max(...prev.map((x) => x.id)) + 1 : 1;
+      const item = { ...beleg, id: nextId };
+      writeLog('EXPENSES', 'CREATE', `Sachbeleg ${item.rechnungsnummer} von ${item.rechnungssteller} über ${item.betragNetto} € netto eingebucht.`);
+      return [...prev, item];
+    });
   };
 
   const handleUpdateRechnung = (id: number, updated: Partial<Rechnungsbeleg>) => {
@@ -314,10 +299,12 @@ export default function App() {
 
   // Mittelabrufe Page Handlers
   const handleAddMittelabruf = (abruf: Omit<Mittelabruf, 'id'>) => {
-    const nextId = mittelabrufe.length > 0 ? Math.max(...mittelabrufe.map((x) => x.id)) + 1 : 1;
-    const item = { ...abruf, id: nextId };
-    setMittelabrufe((prev) => [...prev, item]);
-    writeLog('CLAIMS', 'CREATE', `Mittelabruf ${item.abrufnummer} über ${item.beantragt} € beim Mittelgeber beantragt.`);
+    setMittelabrufe((prev) => {
+      const nextId = prev.length > 0 ? Math.max(...prev.map((x) => x.id)) + 1 : 1;
+      const item = { ...abruf, id: nextId };
+      writeLog('CLAIMS', 'CREATE', `Mittelabruf ${item.abrufnummer} über ${item.beantragt} € beim Mittelgeber beantragt.`);
+      return [...prev, item];
+    });
   };
 
   const handleUpdateMittelabrufStatus = (id: number, newStatus: Mittelabruf['status']) => {
@@ -335,10 +322,12 @@ export default function App() {
 
   // Manual bookings handlers (Budget tab)
   const handleAddBuchung = (booking: Omit<Buchung, 'id'>) => {
-    const nextId = buchungen.length > 0 ? Math.max(...buchungen.map((x) => x.id)) + 1 : 1;
-    const item = { ...booking, id: nextId };
-    setBuchungen((prev) => [...prev, item]);
-    writeLog('BUDGET', 'CREATE', `Manuelle Buchung "${item.beschreibung}" über ${item.betrag} € verbucht.`);
+    setBuchungen((prev) => {
+      const nextId = prev.length > 0 ? Math.max(...prev.map((x) => x.id)) + 1 : 1;
+      const item = { ...booking, id: nextId };
+      writeLog('BUDGET', 'CREATE', `Manuelle Buchung "${item.beschreibung}" über ${item.betrag} € verbucht.`);
+      return [...prev, item];
+    });
   };
 
   const handleUpdateBuchungStatus = (id: number, newStatus: Buchung['status']) => {
@@ -356,10 +345,12 @@ export default function App() {
 
   // Vergaben Procurements Page Handlers
   const handleAddVergabe = (vergabe: Omit<Vergabe, 'id'>) => {
-    const nextId = vergaben.length > 0 ? Math.max(...vergaben.map((x) => x.id)) + 1 : 1;
-    const item = { ...vergabe, id: nextId };
-    setVergaben((prev) => [...prev, item]);
-    writeLog('PROCUREMENT', 'CREATE', `Ausschreibung/Vergabe "${item.titel}" im Status "${item.status}" angelegt.`);
+    setVergaben((prev) => {
+      const nextId = prev.length > 0 ? Math.max(...prev.map((x) => x.id)) + 1 : 1;
+      const item = { ...vergabe, id: nextId };
+      writeLog('PROCUREMENT', 'CREATE', `Ausschreibung/Vergabe "${item.titel}" im Status "${item.status}" angelegt.`);
+      return [...prev, item];
+    });
   };
 
   const handleUpdateVergabe = (id: number, updated: Partial<Vergabe>) => {
@@ -385,15 +376,21 @@ export default function App() {
 
   // Use Case Page Handlers
   const handleAddUseCase = (uc: any) => {
-    const nextId = usecases.length > 0 ? Math.max(...usecases.map((x) => x.id)) + 1 : 1;
-    const item = { ...uc, id: nextId };
-    setUsecases((prev) => [...prev, item]);
+    setUsecases((prev) => {
+      // Clean up uc.id if it was passed from backend to avoid conflicting ID structures
+      const { id: dummyId, ...ucData } = uc;
+      const nextId = prev.length > 0 ? Math.max(...prev.map((x) => x.id)) + 1 : 1;
+      const item = { ...ucData, id: nextId };
+      
+      // Use setTimeout to schedule state updates for related states to avoid nested render warnings
+      setTimeout(() => {
+        setUcNotes((notesPrev) => ({ ...notesPrev, [nextId]: [] }));
+        setUcInvoices((invPrev) => ({ ...invPrev, [nextId]: [] }));
+      }, 0);
 
-    // Prepopulate blank values in notes and invoice link tables
-    setUcNotes((prev) => ({ ...prev, [nextId]: [] }));
-    setUcInvoices((prev) => ({ ...prev, [nextId]: [] }));
-
-    writeLog('USECASES', 'CREATE', `Neuer Pilot-Use Case "${item.titel}" registriert.`);
+      writeLog('USECASES', 'CREATE', `Neuer Pilot-Use Case "${item.titel}" registriert.`);
+      return [...prev, item];
+    });
   };
 
   const handleUpdateUseCase = (id: number, uc: Partial<any>) => {
@@ -411,8 +408,15 @@ export default function App() {
 
   const handleDeleteUseCase = (id: number) => {
     const matched = usecases.find((u) => u.id === id);
-    setUsecases((prev) => prev.filter((u) => u.id !== id));
     if (matched) {
+      setDeletedUcs((prev) => {
+        const titleLower = matched.titel.toLowerCase();
+        if (!prev.includes(titleLower)) {
+          return [...prev, titleLower];
+        }
+        return prev;
+      });
+      setUsecases((prev) => prev.filter((u) => u.id !== id));
       writeLog('USECASES', 'DELETE', `Pilotusecase "${matched.titel}" gelöscht.`);
     }
   };
@@ -474,10 +478,12 @@ export default function App() {
 
   // Partner Database Handlers
   const handleAddPartner = (partner: Omit<Partner, 'id'>) => {
-    const nextId = partners.length > 0 ? Math.max(...partners.map((x) => x.id)) + 1 : 1;
-    const item = { ...partner, id: nextId };
-    setPartners((prev) => [...prev, item]);
-    writeLog('PARTNER', 'CREATE', `Neuer Partner "${item.name}" (${item.typ}) eingetragen.`);
+    setPartners((prev) => {
+      const nextId = prev.length > 0 ? Math.max(...prev.map((x) => x.id)) + 1 : 1;
+      const item = { ...partner, id: nextId };
+      writeLog('PARTNER', 'CREATE', `Neuer Partner "${item.name}" (${item.typ}) eingetragen.`);
+      return [...prev, item];
+    });
   };
 
   const handleUpdatePartner = (id: number, updated: Partial<Partner>) => {
@@ -602,6 +608,43 @@ export default function App() {
     });
   };
 
+  const handleImportPartners = (data: any[]) => {
+    data.forEach((row) => {
+      // Validate or fall back types & statuses
+      let finalTyp = row.typ || 'Startup / Lösungspartner';
+      if (!['Startup / Lösungspartner', 'Industrieunternehmen', 'Kooperationspartner', 'Dienstleister'].includes(finalTyp)) {
+        finalTyp = 'Startup / Lösungspartner';
+      }
+
+      let finalStatus = row.status || 'in Kontakt';
+      if (!['in Kontakt', 'aktiv', 'Pilot läuft', 'abgeschlossen', 'abgelehnt'].includes(finalStatus)) {
+        finalStatus = 'in Kontakt';
+      }
+
+      handleAddPartner({
+        name: row.name || 'Importierter Partner',
+        typ: finalTyp,
+        branche: row.branche || 'Übergreifend',
+        status: finalStatus,
+        rolle: row.rolle || '',
+        useCase: row.useCase || '',
+        ap: row.ap || '',
+        funktion: row.funktion || '',
+        email: row.email || '',
+        tel: row.tel || '',
+        web: row.web || '',
+        ort: row.ort || '',
+        bewertung: typeof row.bewertung === 'number' ? row.bewertung : (parseInt(row.bewertung) || 3),
+        gruendung: row.gruendung || '',
+        tech: row.tech || '',
+        beschr: row.beschr || '',
+        notizen: row.notizen || '',
+        datum: row.datum || new Date().toISOString().slice(0, 10),
+        sharepoint: row.sharepoint || '',
+      });
+    });
+  };
+
   // Systems settings snapshots save/loads
   const handleResetDatabase = () => {
     // Clear Storage item keys
@@ -615,6 +658,7 @@ export default function App() {
     localStorage.removeItem('midpct_uc_notes');
     localStorage.removeItem('midpct_uc_invoices');
     localStorage.removeItem('midpct_usecases');
+    localStorage.removeItem('midpct_deleted_usecases');
     localStorage.removeItem('midpct_audit_logs');
 
     // Hard refresh data values
@@ -624,79 +668,10 @@ export default function App() {
     setVergaben(INITIAL_VERGABEN);
     setPartners(INITIAL_PARTNERS);
     setMatches(INITIAL_MATCHES);
-    setBuchungen(INITIAL_BUCHUNGEN);
-    setUsecases([
-      {
-        id: 1,
-        titel: 'Filtrationsgewebe-Ausrüstung (Batch 1)',
-        unternehmen: 'GKD Gebr. Kufferath AG',
-        sektor: 'Kreislaufwirtschaft Gewebe',
-        loesung: 'Nassfiltration & KI-gestützte Porenbestimmung',
-        branche: 'Textil',
-        reifegrad: 'Pilotbetrieb',
-        batch: 'Batch 1',
-        status: 'aktiv',
-        erfolgswahrscheinlichkeit: 85,
-        politischeRelevanz: 4,
-        deadline: '2026-12-15',
-        risiken: 'Übertragbarkeit der Gewebemaße auf ausländische Webanlagen.',
-        notizen: 'Erster Meilenstein der Gewebeproben wurde erfolgreich abgenommen.',
-        sharepointUrl: 'https://windn.sharepoint.com/sites/MiD-PCT/Freigegebene%20Dokumente/Use-Cases/GKD-Textil',
-        websiteUrl: 'https://zukunftsstoff.de/use-cases/gkd-filtration',
-        projektbeschreibung: 'Erhöhung der Standzeiten von industriellen Filteranlagen durch innovative Porenimprägnierungen. Reduziert chemische Lösungsabfälle im Dürener Werk.'
-      },
-      {
-        id: 2,
-        titel: 'Silicium-Beschichtungsreaktor (Batch 1)',
-        unternehmen: 'Sihl GmbH',
-        sektor: 'Rolle-zu-Rolle Papier',
-        loesung: 'Wasserlösliche Barrierebeschichtungen',
-        branche: 'Papier',
-        reifegrad: 'Pilotbetrieb',
-        batch: 'Batch 1',
-        status: 'aktiv',
-        erfolgswahrscheinlichkeit: 90,
-        politischeRelevanz: 5,
-        deadline: '2026-10-20',
-        risiken: 'Haftung auf dünnen Trägerbahnen bei hohen Walzgeschwindigkeiten.',
-        notizen: 'Zustimmung zum vorzeitigen Maßnahmenbeginn liegt vor.',
-        sharepointUrl: 'https://windn.sharepoint.com/sites/MiD-PCT/Freigegebene%20Dokumente/Use-Cases/Sihl-Papier',
-        websiteUrl: 'https://zukunftsstoff.de/use-cases/sihl-papierbeschichtung',
-        projektbeschreibung: 'Entwicklung barrierefreie Papiere für Lebensmittelverpackungen zur Einsparung von PE/ALU-Mehrschichtfolien. Unterstützt reibungslosen Altpapier-Recyclingkreislauf.'
-      },
-      {
-        id: 3,
-        titel: 'Wasserstoff-Netzkoppler (Batch 1)',
-        unternehmen: 'Leitungspartner GmbH',
-        sektor: 'Wasserstoff-Kreislaufchemie',
-        loesung: 'Leitungssimulation via Druckwellen-Vektorisierung',
-        branche: 'Chemie',
-        reifegrad: 'Konzept',
-        batch: 'Batch 1',
-        status: 'aktiv',
-        erfolgswahrscheinlichkeit: 65,
-        politischeRelevanz: 4,
-        deadline: '2027-03-15',
-        risiken: 'Geringe Beimischungsraten von regionalen H2-Erzeugern.',
-        notizen: 'Vorbereitende Messkonzepte im Dürener Stadtgebiet gestartet.',
-        sharepointUrl: 'https://windn.sharepoint.com/sites/MiD-PCT/Freigegebene%20Dokumente/Use-Cases/Leitungspartner-H2',
-        websiteUrl: 'https://zukunftsstoff.de/use-cases/lp-stadtgasnetzkopplung',
-        projektbeschreibung: 'Nachweis der Eignung bestehender Mitteldruckgasleitungen für bis zu 20% Wasserstoffbeimischung der chemischen Industrieunternehmen im Netzwerk.'
-      }
-    ]);
-    setUcNotes({
-      1: [
-        { id: 101, text: "Erfolgreicher Kick-off Workshop mit der GKD Group am Standort Düren.", type: "meeting", date: "2025-05-12" },
-        { id: 102, text: "Vorzeitiger Maßnahmenbeginn durch das BAFA genehmigt.", type: "meilenstein", date: "2025-06-01" },
-      ],
-      2: [
-        { id: 201, text: "Meilenstein: Festlegung der Pilot-Kompaktieranlage für Kreislauf-Papier.", type: "meilenstein", date: "2025-06-10" },
-      ],
-      3: [
-        { id: 301, text: "Planungsmeeting mit Smart-Grid-Softwareanbietern.", type: "meeting", date: "2025-05-18" },
-      ]
-    });
-    setUcInvoices({ 1: [1, 3], 2: [2], 3: [] });
+    setUsecases([]);
+    setDeletedUcs([]);
+    setUcNotes({});
+    setUcInvoices({});
 
     setLogs([
       {
@@ -1106,6 +1081,7 @@ export default function App() {
             {activePage === 'usecase' && (
               <UseCasePage
                 usecases={usecases}
+                deletedUcs={deletedUcs}
                 rechnungen={rechnungen}
                 activeYear={activeYear}
                 activeYearLabel={activeYearLabel}
@@ -1136,6 +1112,7 @@ export default function App() {
                 onImportRechnungen={handleImportRechnungen}
                 onImportMittelabrufe={handleImportMittelabrufe}
                 onImportVergaben={handleImportVergaben}
+                onImportPartners={handleImportPartners}
               />
             )}
             {activePage === 'report' && (

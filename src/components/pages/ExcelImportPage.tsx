@@ -6,6 +6,7 @@ interface ExcelImportPageProps {
   onImportRechnungen: (data: any[]) => void;
   onImportMittelabrufe: (data: any[]) => void;
   onImportVergaben: (data: any[]) => void;
+  onImportPartners: (data: any[]) => void;
 }
 
 export default function ExcelImportPage({
@@ -13,10 +14,11 @@ export default function ExcelImportPage({
   onImportRechnungen,
   onImportMittelabrufe,
   onImportVergaben,
+  onImportPartners,
 }: ExcelImportPageProps) {
   // Wizard Stages: 1 = upload, 2 = column mapping, 3 = preview & merge
   const [stage, setStage] = useState<1 | 2 | 3>(1);
-  const [targetModule, setTargetModule] = useState<'personal' | 'rechnungen' | 'mittelabrufe' | 'vergaben'>('rechnungen');
+  const [targetModule, setTargetModule] = useState<'personal' | 'rechnungen' | 'mittelabrufe' | 'vergaben' | 'partners'>('rechnungen');
   const [dragActive, setDragActive] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -58,6 +60,15 @@ export default function ExcelImportPage({
       { label: 'auftragnehmer', req: false },
       { label: 'auftragswert', req: true },
       { label: 'status', req: true },
+    ],
+    partners: [
+      { label: 'name', req: true },
+      { label: 'typ', req: true },
+      { label: 'branche', req: true },
+      { label: 'status', req: true },
+      { label: 'email', req: false },
+      { label: 'ort', req: false },
+      { label: 'bewertung', req: false },
     ]
   };
 
@@ -154,10 +165,21 @@ export default function ExcelImportPage({
         { 'Lohnmonat': 6, 'Vorname': 'Elena', 'Nachname': 'Krämer', 'Rolle': 'Transformationsbeauftragte Papier', 'Gehalt Brutto (€)': 4850.00, 'AG-Kosten (€)': 5820.00, 'Abrechnungsjahr': 2026 },
         { 'Lohnmonat': 6, 'Vorname': 'Simon', 'Nachname': 'Wegner', 'Rolle': 'Projektleiter WIN.DN', 'Gehalt Brutto (€)': 5400.00, 'AG-Kosten (€)': 6480.00, 'Abrechnungsjahr': 2026 },
       ];
-    } else {
-      dummyHeaders = ['Code', 'Tag', 'Beschreibung', 'Betrag (€)'];
+    } else if (targetModule === 'mittelabrufe') {
+      dummyHeaders = ['Beleg-Nr', 'von', 'bis', 'Betrag Beantragt (€)', 'Geldeingang (€)'];
       dummyRows = [
-        { 'Code': 'AB-Q1-2026', 'Tag': '2026-03-10', 'Beschreibung': 'Sonderabruf BAFA', 'Betrag (€)': 125000.00 }
+        { 'Beleg-Nr': 'AB-Q1-2026', 'von': '2026-01-01', 'bis': '2026-03-31', 'Betrag Beantragt (€)': 125000.00, 'Geldeingang (€)': 0 }
+      ];
+    } else if (targetModule === 'vergaben') {
+      dummyHeaders = ['Ausschreibungstitel', 'Bieter/Partner', 'Kalkulierter Wert (€)', 'Status'];
+      dummyRows = [
+        { 'Ausschreibungstitel': 'Digitale Leitstandssoftware', 'Bieter/Partner': 'Control GmbH', 'Kalkulierter Wert (€)': 75000.00, 'Status': 'Vorbereitung' }
+      ];
+    } else {
+      dummyHeaders = ['Name des Partners', 'Typ des Partners', 'Branche / Sektor', 'Status', 'E-Mail', 'Firmensitz/Ort', 'Bewertung (1-5)'];
+      dummyRows = [
+        { 'Name des Partners': 'Aachen Analytics GmbH', 'Typ des Partners': 'Startup / Lösungspartner', 'Branche / Sektor': 'Übergreifend', 'Status': 'aktiv', 'E-Mail': 'hello@aachen-analytics.de', 'Firmensitz/Ort': 'Aachen', 'Bewertung (1-5)': 5 },
+        { 'Name des Partners': 'Schnittstellen & Söhne GmbH', 'Typ des Partners': 'Dienstleister', 'Branche / Sektor': 'Chemie', 'Status': 'in Kontakt', 'E-Mail': 'info@schnittstellen.de', 'Firmensitz/Ort': 'Düren', 'Bewertung (1-5)': 3 },
       ];
     }
 
@@ -180,6 +202,25 @@ export default function ExcelImportPage({
       initialMap['arbeitnehmerBrutto'] = 'Gehalt Brutto (€)';
       initialMap['arbeitgeberKosten'] = 'AG-Kosten (€)';
       initialMap['jahr'] = 'Abrechnungsjahr';
+    } else if (targetModule === 'mittelabrufe') {
+      initialMap['abrufnummer'] = 'Beleg-Nr';
+      initialMap['zeitraumVon'] = 'von';
+      initialMap['zeitraumBis'] = 'bis';
+      initialMap['beantragt'] = 'Betrag Beantragt (€)';
+      initialMap['eingegangen'] = 'Geldeingang (€)';
+    } else if (targetModule === 'vergaben') {
+      initialMap['titel'] = 'Ausschreibungstitel';
+      initialMap['auftragnehmer'] = 'Bieter/Partner';
+      initialMap['auftragswert'] = 'Kalkulierter Wert (€)';
+      initialMap['status'] = 'Status';
+    } else {
+      initialMap['name'] = 'Name des Partners';
+      initialMap['typ'] = 'Typ des Partners';
+      initialMap['branche'] = 'Branche / Sektor';
+      initialMap['status'] = 'Status';
+      initialMap['email'] = 'E-Mail';
+      initialMap['ort'] = 'Firmensitz/Ort';
+      initialMap['bewertung'] = 'Bewertung (1-5)';
     }
 
     setColumnMappings(initialMap);
@@ -208,7 +249,7 @@ export default function ExcelImportPage({
         let val = xlHeader ? row[xlHeader] : undefined;
 
         // Clean values
-        if (f.label === 'betragNetto' || f.label === 'arbeitnehmerBrutto' || f.label === 'arbeitgeberKosten' || f.label === 'beantragt' || f.label === 'eingegangen' || f.label === 'auftragswert') {
+        if (f.label === 'betragNetto' || f.label === 'arbeitnehmerBrutto' || f.label === 'arbeitgeberKosten' || f.label === 'beantragt' || f.label === 'eingegangen' || f.label === 'auftragswert' || f.label === 'bewertung') {
           val = typeof val === 'number' ? val : parseFloat(String(val).replace(/[^0-9.-]+/g, '')) || 0;
         } else if (f.label === 'monat' || f.label === 'jahr') {
           val = Number(val) || 0;
@@ -230,6 +271,8 @@ export default function ExcelImportPage({
       onImportMittelabrufe(normalizedData);
     } else if (targetModule === 'vergaben') {
       onImportVergaben(normalizedData);
+    } else if (targetModule === 'partners') {
+      onImportPartners(normalizedData);
     }
 
     setImportStatusMessage(`Erfolgreich ${normalizedData.length} Datensätze in das Modul "${targetModule.toUpperCase()}" eingepflegt.`);
@@ -289,6 +332,7 @@ export default function ExcelImportPage({
                 { key: 'personal', label: 'Echte Personalkosten (Lohnsätze)' },
                 { key: 'mittelabrufe', label: 'Finanzabrufe (BAFA/LHO)' },
                 { key: 'vergaben', label: 'Vergabeausschreibungen' },
+                { key: 'partners', label: 'Partnerdatenbank (Akteure)' },
               ].map((m) => (
                 <div
                   key={m.key}

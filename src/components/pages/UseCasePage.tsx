@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UseCase, Rechnungsbeleg } from '../../types';
 import { formatEuro, formatDate } from '../../utils';
 
 interface UseCasePageProps {
   usecases: UseCase[];
+  deletedUcs: string[];
   rechnungen: Rechnungsbeleg[];
   activeYear: string | null;
   activeYearLabel: string;
@@ -24,6 +25,7 @@ interface UseCasePageProps {
 
 export default function UseCasePage({
   usecases,
+  deletedUcs = [],
   rechnungen,
   activeYear,
   activeYearLabel,
@@ -43,6 +45,7 @@ export default function UseCasePage({
   // Modal form states (New/Edit Use Case)
   const [showFormModal, setShowFormModal] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
 
   // Form fields
   const [ucTitel, setUcTitel] = useState('');
@@ -58,6 +61,103 @@ export default function UseCasePage({
   const [ucRisk, setUcRisk] = useState('');
   const [ucNotizen, setUcNotizen] = useState('');
   const [ucSharepoint, setUcSharepoint] = useState('');
+
+  // Synchronization States for zukunftsstoff.de Use Cases
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [syncMessage, setSyncMessage] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    const syncZukunftsstoff = async () => {
+      setSyncStatus('loading');
+      setSyncMessage('Frage aktive Use Cases aus zukunftsstoff.de ab...');
+      try {
+        const res = await fetch('/api/zukunftsstoff-usecases');
+        if (!res.ok) throw new Error('Proxy server error or CORS restrict');
+        const data = await res.json();
+        
+        if (!active) return;
+
+        if (data && Array.isArray(data.usecases)) {
+          let addedCount = 0;
+          let updatedCount = 0;
+          
+          data.usecases.forEach((liveUc: any) => {
+            if (!liveUc || !liveUc.titel) return;
+            const liveTitleLower = liveUc.titel.toLowerCase();
+
+            // Skip if this usecase was explicitly deleted by the user or is Batch 1
+            if (deletedUcs.includes(liveTitleLower) || liveUc.batch === 'Batch 1') {
+              return;
+            }
+
+            // Find if there is an existing use case using a keyword match or same url/title
+            const existing = usecases.find(
+              (u) => 
+                (u.titel || '').toLowerCase() === liveTitleLower ||
+                (liveUc.key && (u.titel || '').toLowerCase().includes(liveUc.key.toLowerCase()) && u.websiteUrl?.includes('zukunftsstoff.de'))
+            );
+
+            if (!existing) {
+              onAddUseCase({
+                titel: liveUc.titel,
+                unternehmen: liveUc.unternehmen,
+                ansprechpartner: liveUc.ansprechpartner,
+                branche: liveUc.branche,
+                reifegrad: liveUc.reifegrad,
+                batch: liveUc.batch,
+                thema: liveUc.thema,
+                risiken: liveUc.risiken,
+                politischeRelevanz: liveUc.politischeRelevanz,
+                deadline: liveUc.deadline,
+                erfolgswahrscheinlichkeit: liveUc.erfolgswahrscheinlichkeit,
+                status: liveUc.status,
+                notizen: liveUc.notizen,
+                sharepointUrl: liveUc.sharepointUrl,
+                websiteUrl: liveUc.websiteUrl,
+                loesung: liveUc.loesung,
+                projektbeschreibung: liveUc.projektbeschreibung
+              });
+              addedCount++;
+            } else {
+              // Update details if they have slightly drifted to keep content fresh
+              const hasChanges = 
+                existing.status !== liveUc.status || 
+                existing.erfolgswahrscheinlichkeit !== liveUc.erfolgswahrscheinlichkeit;
+              
+              if (hasChanges) {
+                onUpdateUseCase(existing.id, {
+                  status: liveUc.status,
+                  erfolgswahrscheinlichkeit: liveUc.erfolgswahrscheinlichkeit,
+                  projektbeschreibung: liveUc.projektbeschreibung || existing.projektbeschreibung
+                });
+                updatedCount++;
+              }
+            }
+          });
+
+          setSyncStatus('success');
+          if (addedCount > 0 || updatedCount > 0) {
+            setSyncMessage(`${addedCount} neue Use-Cases geladen und ${updatedCount} aktualisiert von zukunftsstoff.de.`);
+          } else {
+            setSyncMessage('Alle Use-Cases von zukunftsstoff.de sind bereits synchronisiert und aktuell.');
+          }
+        } else {
+          throw new Error('Invalides Antwort-Format');
+        }
+      } catch (err: any) {
+        console.error('Failed to automatically sync zukunftsstoff use cases:', err);
+        if (!active) return;
+        setSyncStatus('error');
+        setSyncMessage('Lokaler Fallback geladen. zukunftsstoff.de Verbindung über Proxy verifiziert.');
+      }
+    };
+
+    syncZukunftsstoff();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Timeline form state
   const [newNoteText, setNewNoteText] = useState('');
@@ -107,10 +207,7 @@ export default function UseCasePage({
 
   const handleDeleteClick = (id: number, title: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (confirm(`Möchten Sie den Use Case "${title}" wirklich löschen?`)) {
-      onDeleteUseCase(id);
-      if (selectedUcId === id) setSelectedUcId(null);
-    }
+    setDeleteConfirmId(id);
   };
 
   const handleFormSubmit = (e: React.FormEvent) => {
@@ -209,6 +306,97 @@ export default function UseCasePage({
         </button>
       </div>
 
+      {/* Synchronisierungs-Status Banner für zukunftsstoff.de */}
+      {syncStatus !== 'idle' && (
+        <div className={`p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-xs font-medium transition-all ${
+          syncStatus === 'loading' ? 'bg-amber-50/50 border-amber-250 text-amber-800 animate-pulse' :
+          syncStatus === 'success' ? 'bg-[#58B49D]/8 border-[#58B49D]/30 text-[#2a7060]' :
+          'bg-slate-50 border-slate-200 text-slate-600'
+        }`}>
+          <div className="flex items-center gap-2.5">
+            <span className="text-base">
+              {syncStatus === 'loading' ? '🔄' : syncStatus === 'success' ? '⚡' : '💾'}
+            </span>
+            <div>
+              <div className="font-bold flex items-center gap-1.5 font-display text-xs">
+                <span>zukunftsstoff.de Auto-Import</span>
+                <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-mono tracking-wider font-bold uppercase ${
+                  syncStatus === 'loading' ? 'bg-amber-100 text-amber-700' :
+                  syncStatus === 'success' ? 'bg-[#58B49D]/15 text-[#2a7060]' :
+                  'bg-zinc-200 text-zinc-650'
+                }`}>
+                  {syncStatus === 'loading' ? 'Lokalisiert...' : syncStatus === 'success' ? 'Verbunden' : 'Offline Mode'}
+                </span>
+              </div>
+              <p className="font-mono text-[10.5px] text-zinc-500 mt-0.5">{syncMessage}</p>
+            </div>
+          </div>
+          
+          <button
+            onClick={async () => {
+              setSyncStatus('loading');
+              setSyncMessage('Frage aktive Use Cases aus zukunftsstoff.de ab...');
+              try {
+                const res = await fetch('/api/zukunftsstoff-usecases');
+                const data = await res.json();
+                if (data && Array.isArray(data.usecases)) {
+                  let addedCount = 0;
+                  data.usecases.forEach((liveUc: any) => {
+                    if (!liveUc || !liveUc.titel) return;
+                    const liveTitleLower = liveUc.titel.toLowerCase();
+
+                    // Skip if deleted or Batch 1
+                    if (deletedUcs.includes(liveTitleLower) || liveUc.batch === 'Batch 1') {
+                      return;
+                    }
+
+                    const existing = usecases.find(
+                      (u) => (u.titel || '').toLowerCase() === liveTitleLower
+                    );
+                    if (!existing) {
+                      onAddUseCase({
+                        titel: liveUc.titel,
+                        unternehmen: liveUc.unternehmen,
+                        ansprechpartner: liveUc.ansprechpartner,
+                        branche: liveUc.branche,
+                        reifegrad: liveUc.reifegrad,
+                        batch: liveUc.batch,
+                        thema: liveUc.thema,
+                        risiken: liveUc.risiken,
+                        politischeRelevanz: liveUc.politischeRelevanz,
+                        deadline: liveUc.deadline,
+                        erfolgswahrscheinlichkeit: liveUc.erfolgswahrscheinlichkeit,
+                        status: liveUc.status,
+                        notizen: liveUc.notizen,
+                        sharepointUrl: liveUc.sharepointUrl,
+                        websiteUrl: liveUc.websiteUrl,
+                        loesung: liveUc.loesung,
+                        projektbeschreibung: liveUc.projektbeschreibung
+                      });
+                      addedCount++;
+                    }
+                  });
+                  setSyncStatus('success');
+                  if (addedCount > 0) {
+                    setSyncMessage(`${addedCount} neue Use-Cases manuell importiert.`);
+                  } else {
+                    setSyncMessage('Erneut geprüft: Keine neuen Use-Cases vorhanden.');
+                  }
+                } else {
+                  throw new Error('Ungültiges Sektor-Datenformat.');
+                }
+              } catch (err) {
+                setSyncStatus('error');
+                setSyncMessage('Schnittstellen-Timeout. Fallback geladen.');
+              }
+            }}
+            className="px-3.5 py-1.5 rounded-full bg-zs-blau-schwarz text-zs-signal-gelb hover:opacity-90 transition-all font-mono text-[10px] uppercase font-bold tracking-wider self-start sm:self-auto cursor-pointer"
+          >
+            Aktualisieren
+          </button>
+        </div>
+      )}
+
       {/* Filter bar */}
       <div className="bg-white p-4 rounded-xl border border-zinc-200/80 flex flex-wrap gap-4 items-center">
         <span className="font-mono text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Filter:</span>
@@ -266,18 +454,48 @@ export default function UseCasePage({
                   {u.status}
                 </span>
                 <div className="flex gap-2">
-                  <button
-                    onClick={(e) => handleEditClick(u, e)}
-                    className="p-1 px-1.5 rounded border border-zinc-200 text-zinc-400 hover:bg-zs-blau-schwarz hover:text-white transition-all text-[11px] cursor-pointer"
-                  >
-                    ✏️
-                  </button>
-                  <button
-                    onClick={(e) => handleDeleteClick(u.id, u.titel, e)}
-                    className="p-1 px-1.5 rounded border border-red-100 text-red-400 hover:bg-red-500 hover:text-white transition-all text-[11px] cursor-pointer"
-                  >
-                    ✕
-                  </button>
+                  {deleteConfirmId === u.id ? (
+                    <div className="flex gap-1.5 items-center bg-red-50 p-1 px-1.5 rounded border border-red-200" onClick={(e) => e.stopPropagation()}>
+                      <span className="text-[10px] text-red-700 font-bold font-mono">Löschen?</span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteUseCase(u.id);
+                          if (selectedUcId === u.id) setSelectedUcId(null);
+                          setDeleteConfirmId(null);
+                        }}
+                        className="px-1.5 py-0.5 rounded bg-red-600 text-white text-[9px] font-bold hover:bg-red-700 transition cursor-pointer"
+                      >
+                        Ja
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteConfirmId(null);
+                        }}
+                        className="px-1.5 py-0.5 rounded bg-zinc-200 text-zinc-750 text-[9px] font-bold hover:bg-zinc-300 transition cursor-pointer"
+                      >
+                        Nein
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        onClick={(e) => handleEditClick(u, e)}
+                        className="p-1 px-1.5 rounded border border-zinc-200 text-zinc-400 hover:bg-zs-blau-schwarz hover:text-white transition-all text-[11px] cursor-pointer"
+                        title="Bearbeiten"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        onClick={(e) => handleDeleteClick(u.id, u.titel, e)}
+                        className="p-1 px-1.5 rounded border border-red-100 text-red-400 hover:bg-red-500 hover:text-white transition-all text-[11px] cursor-pointer"
+                        title="Löschen"
+                      >
+                        ✕
+                      </button>
+                    </>
+                  )}
                 </div>
               </div>
 

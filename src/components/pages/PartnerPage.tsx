@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import * as XLSX from 'xlsx';
 import { Partner, PartnerMatch } from '../../types';
 
 interface PartnerPageProps {
@@ -37,6 +38,112 @@ export default function PartnerPage({
   const [pOrt, setPOrt] = useState('Düren');
   const [pStatus, setPStatus] = useState<Partner['status']>('aktiv');
   const [pNotizen, setPNotizen] = useState('');
+  const [importMessage, setImportMessage] = useState<string | null>(null);
+
+  const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        try {
+          const bstr = evt.target?.result;
+          const wb = XLSX.read(bstr, { type: 'binary' });
+          const wsname = wb.SheetNames[0];
+          const ws = wb.Sheets[wsname];
+          const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+
+          if (rawData.length < 2) {
+            alert('Die hochgeladene Datei enthält keine ausreichenden Daten (Mindestens eine Kopfzeile und eine Datenzeile notwendig).');
+            return;
+          }
+
+          const headers = (rawData[0] || []).map((h) => String(h).trim().toLowerCase());
+          const rows = rawData.slice(1);
+
+          let count = 0;
+          rows.forEach((row) => {
+            if (!row || row.length === 0) return;
+
+            // Helper to find a value by searching for matching headers
+            const getVal = (keywords: string[]): any => {
+              const idx = headers.findIndex((h) => keywords.some((kw) => h === kw || h.includes(kw)));
+              return idx !== -1 ? row[idx] : undefined;
+            };
+
+            const nameValue = getVal(['name', 'firma', 'partner', 'organisation', 'unternehmen']) || '';
+            if (!nameValue || String(nameValue).trim() === '') return;
+
+            // Resolve partner classification typ
+            const rawTyp = String(getVal(['typ', 'klassifikation', 'kategorie', 'art', 'partnertyp', 'typ des partners']) || '').trim();
+            let finalTyp: Partner['typ'] = 'Startup / Lösungspartner';
+            if (rawTyp.toLowerCase().includes('industrie') || rawTyp.toLowerCase().includes('kmu') || rawTyp.toLowerCase().includes('unternehmen')) {
+              finalTyp = 'Industrieunternehmen';
+            } else if (rawTyp.toLowerCase().includes('koordination') || rawTyp.toLowerCase().includes('kooperation') || rawTyp.toLowerCase().includes('träger') || rawTyp.toLowerCase().includes('partner')) {
+              finalTyp = 'Kooperationspartner';
+            } else if (rawTyp.toLowerCase().includes('dienstleister') || rawTyp.toLowerCase().includes('beratung') || rawTyp.toLowerCase().includes('agentur')) {
+              finalTyp = 'Dienstleister';
+            }
+
+            // Resolve partner status
+            const rawStatus = String(getVal(['status', 'phase']) || '').trim();
+            let finalStatus: Partner['status'] = 'aktiv';
+            if (rawStatus.toLowerCase().includes('kontakt')) {
+              finalStatus = 'in Kontakt';
+            } else if (rawStatus.toLowerCase().includes('lauf') || rawStatus.toLowerCase().includes('pilot')) {
+              finalStatus = 'Pilot läuft';
+            } else if (rawStatus.toLowerCase().includes('abgeschlossen') || rawStatus.toLowerCase().includes('beendet')) {
+              finalStatus = 'abgeschlossen';
+            } else if (rawStatus.toLowerCase().includes('abgelehnt') || rawStatus.toLowerCase().includes('storniert')) {
+              finalStatus = 'abgelehnt';
+            }
+
+            // Resolve assessment
+            const rawBewertung = getVal(['bewertung', 'rating', 'score']);
+            let finalBewertung = 3;
+            if (typeof rawBewertung === 'number') {
+              finalBewertung = Math.max(1, Math.min(5, Math.round(rawBewertung)));
+            } else if (rawBewertung) {
+              finalBewertung = Math.max(1, Math.min(5, parseInt(String(rawBewertung)) || 3));
+            }
+
+            const payload: Omit<Partner, 'id'> = {
+              name: String(nameValue).trim(),
+              typ: finalTyp,
+              branche: String(getVal(['branche', 'sektor', 'industrie', 'bereich']) || 'Übergreifend').trim(),
+              status: finalStatus,
+              rolle: String(getVal(['rolle', 'aufgabe', 'funktion', 'tätigkeit']) || 'Projektpartner').trim(),
+              useCase: String(getVal(['usecase', 'use case', 'pilot', 'projekt']) || '').trim(),
+              ap: String(getVal(['ap', 'ansprechpartner', 'kontaktperson', 'person', 'kontakt']) || '').trim(),
+              funktion: String(getVal(['funktion', 'abteilung', 'stelle']) || '').trim(),
+              email: String(getVal(['email', 'e-mail', 'mail', 'adresse email']) || '').trim(),
+              tel: String(getVal(['tel', 'telefon', 'mobil', 'phone']) || '').trim(),
+              web: String(getVal(['web', 'website', 'url']) || '').trim(),
+              ort: String(getVal(['ort', 'stadt', 'sitz', 'firmensitz', 'standort']) || 'Düren').trim(),
+              bewertung: finalBewertung,
+              gruendung: String(getVal(['gründung', 'gruendung', 'founding', 'jahr']) || '').trim(),
+              tech: String(getVal(['tech', 'technologie', 'kompetenz']) || '').trim(),
+              beschr: String(getVal(['beschr', 'beschreibung', 'description', 'infos']) || '').trim(),
+              notizen: String(getVal(['notizen', 'kommentar', 'bemerkung']) || 'Importiert aus Excel.').trim(),
+              datum: String(getVal(['datum', 'date', 'erstellt']) || new Date().toISOString().slice(0, 10)).trim(),
+              sharepoint: String(getVal(['sharepoint', 'link microsoft', 'ordner']) || '').trim(),
+            };
+
+            onAddPartner(payload);
+            count++;
+          });
+
+          setImportMessage(`Erfolgreich ${count} Partner aus der Excel-Tabelle in die Partnerdatenbank eingepflegt!`);
+          setTimeout(() => {
+            setImportMessage(null);
+          }, 6500);
+        } catch (err: any) {
+          alert('Fehler beim Importieren des Excel-Dokuments: ' + err.message);
+        }
+      };
+      reader.readAsBinaryString(file);
+      e.target.value = '';
+    }
+  };
 
   // Classify Partners
   const industries = partners.filter((p) => p.typ === 'Industrieunternehmen');
@@ -116,25 +223,43 @@ export default function PartnerPage({
             Recherchen und Matchmaking des Dürener Industrie-Netzwerks (WIN.DN)
           </p>
         </div>
-        <button
-          onClick={() => {
-            setEditingId(null);
-            setPName('');
-            setPTyp('Industrieunternehmen');
-            setPBranche('Textil');
-            setPAp('');
-            setPEmail('');
-            setPPhone('');
-            setPOrt('Düren');
-            setPStatus('aktiv');
-            setPNotizen('');
-            setShowFormModal(true);
-          }}
-          className="px-5 py-2 text-xs font-bold rounded-full bg-zs-signal-gelb text-zs-blau-schwarz hover:bg-zs-blau-schwarz hover:text-zs-signal-gelb transition-all shadow-xs cursor-pointer self-start sm:self-auto"
-        >
-          + Neuer Partner eintragen
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <label className="px-5 py-2 text-xs font-bold rounded-full bg-white text-zinc-700 hover:bg-zinc-50 border border-zinc-200 shadow-3xs cursor-pointer flex items-center justify-center gap-1.5 transition-all">
+            <span>📊 Excel / CSV importieren</span>
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={handleExcelUpload}
+              className="hidden"
+            />
+          </label>
+          <button
+            onClick={() => {
+              setEditingId(null);
+              setPName('');
+              setPTyp('Industrieunternehmen');
+              setPBranche('Textil');
+              setPAp('');
+              setPEmail('');
+              setPPhone('');
+              setPOrt('Düren');
+              setPStatus('aktiv');
+              setPNotizen('');
+              setShowFormModal(true);
+            }}
+            className="px-5 py-2 text-xs font-bold rounded-full bg-zs-signal-gelb text-zs-blau-schwarz hover:bg-zs-blau-schwarz hover:text-zs-signal-gelb transition-all shadow-xs cursor-pointer self-start sm:self-auto"
+          >
+            + Neuer Partner eintragen
+          </button>
+        </div>
       </div>
+
+      {importMessage && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl flex items-center gap-3 text-xs font-semibold animate-fade-in shadow-xs">
+          <span>🎉</span>
+          <div>{importMessage}</div>
+        </div>
+      )}
 
       {/* Sub Views Toggler */}
       <div className="bg-white p-3 rounded-xl border border-zinc-200/80 flex flex-col md:flex-row gap-4 items-center justify-between">
