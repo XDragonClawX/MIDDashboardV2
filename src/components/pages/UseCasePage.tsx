@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UseCase, Rechnungsbeleg } from '../../types';
+import { UseCase, Rechnungsbeleg, Task } from '../../types';
 import { formatEuro, formatDate } from '../../utils';
 
 interface UseCasePageProps {
@@ -21,6 +21,10 @@ interface UseCasePageProps {
   ucInvoices: { [key: number]: number[] };
   onLinkInvoice: (ucId: number, invoiceId: number) => void;
   onUnlinkInvoice: (ucId: number, invoiceId: number) => void;
+
+  // Task integration
+  tasks?: Task[];
+  onUpdateTask?: (id: number, task: Partial<Task>) => void;
 }
 
 export default function UseCasePage({
@@ -38,6 +42,8 @@ export default function UseCasePage({
   ucInvoices,
   onLinkInvoice,
   onUnlinkInvoice,
+  tasks = [],
+  onUpdateTask,
 }: UseCasePageProps) {
   // Detail Drawer state
   const [selectedUcId, setSelectedUcId] = useState<number | null>(null);
@@ -665,6 +671,45 @@ export default function UseCasePage({
                     >
                       Verknüpfen
                     </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Linked Tasks */}
+              <div className="space-y-3 pt-4 border-t border-zinc-100">
+                <h4 className="text-[10px] font-mono font-bold text-zinc-450 uppercase tracking-widest">Projektsteuerung (Zugehörige To-Dos &amp; Aufgaben)</h4>
+                {tasks && tasks.filter(t => t.useCaseId === activeUc.id).length === 0 ? (
+                  <div className="text-zinc-400 text-xs italic font-mono">Keine Aufgaben für diesen Use-Case hinterlegt.</div>
+                ) : (
+                  <div className="space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                    {tasks.filter(t => t.useCaseId === activeUc.id).map((t) => (
+                      <div key={t.id} className="flex justify-between items-center bg-zinc-50 p-2.5 rounded-lg border border-zinc-150 text-xs">
+                        <div className="flex items-center gap-2 truncate max-w-[75%]">
+                          <input
+                            type="checkbox"
+                            checked={t.status === 'erledigt'}
+                            onChange={() => {
+                              if (onUpdateTask) {
+                                onUpdateTask(t.id, { status: t.status === 'erledigt' ? 'offen' : 'erledigt' });
+                              }
+                            }}
+                            className="cursor-pointer rounded border-zinc-300 text-zs-blau-schwarz focus:ring-zs-blau-schwarz text-xs h-3.5 w-3.5"
+                          />
+                          <span className={`truncate font-semibold ${t.status === 'erledigt' ? 'line-through text-zinc-400' : 'text-zinc-800'}`}>
+                            {t.title}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[9px] font-mono uppercase px-1.5 py-0.5 rounded border ${
+                            t.priority === 'hoch' ? 'bg-red-50 text-red-700 border-red-105' :
+                            t.priority === 'mittel' ? 'bg-amber-50 text-amber-700 border-amber-105' :
+                            'bg-slate-50 text-zinc-500 border-slate-105'
+                          }`}>
+                            {t.priority}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

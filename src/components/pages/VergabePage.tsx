@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Vergabe } from '../../types';
+import { Vergabe, Task } from '../../types';
 import { formatEuro, formatDate } from '../../utils';
 
 interface VergabePageProps {
@@ -9,6 +9,8 @@ interface VergabePageProps {
   onAddVergabe: (vergabe: Omit<Vergabe, 'id'>) => void;
   onUpdateVergabe: (id: number, vergabe: Partial<Vergabe>) => void;
   onDeleteVergabe: (id: number) => void;
+  tasks?: Task[];
+  onUpdateTask?: (id: number, task: Partial<Task>) => void;
 }
 
 export default function VergabePage({
@@ -18,6 +20,8 @@ export default function VergabePage({
   onAddVergabe,
   onUpdateVergabe,
   onDeleteVergabe,
+  tasks = [],
+  onUpdateTask,
 }: VergabePageProps) {
   // Local states
   const [showFormModal, setShowFormModal] = useState(false);
@@ -222,6 +226,30 @@ export default function VergabePage({
                           ⚠ BAFA fehlt
                         </div>
                       )}
+                      
+                      {tasks && tasks.filter(t => t.vergabeId === v.id).length > 0 && (
+                        <div className="mt-2 space-y-1 text-[9px] font-mono border-t border-zinc-100 pt-2 select-none">
+                          <span className="text-zinc-400 block font-semibold">AUFGABEN &amp; TO-DOS ({tasks.filter(t => t.vergabeId === v.id && t.status === 'erledigt').length}/{tasks.filter(t => t.vergabeId === v.id).length}):</span>
+                          {tasks.filter(t => t.vergabeId === v.id).map(t => (
+                            <div key={t.id} className="flex items-center gap-1.5 truncate text-zinc-600">
+                              <input
+                                type="checkbox"
+                                checked={t.status === 'erledigt'}
+                                onChange={() => {
+                                  if (onUpdateTask) {
+                                    onUpdateTask(t.id, { status: t.status === 'erledigt' ? 'offen' : 'erledigt' });
+                                  }
+                                }}
+                                className="cursor-pointer rounded border-zinc-300 h-3 w-3 text-zs-blau-schwarz hover:scale-105"
+                              />
+                              <span className={`truncate ${t.status === 'erledigt' ? 'line-through text-zinc-400' : ''}`} title={t.title}>
+                                {t.title}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
                       {deleteConfirmId === v.id ? (
                         <div className="flex gap-1.5 items-center bg-red-50 p-1 px-1.5 rounded border border-red-200 mt-2 w-full justify-between">
                           <span className="text-[10px] text-red-750 font-bold font-mono">Löschen?</span>

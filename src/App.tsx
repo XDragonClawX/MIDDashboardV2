@@ -8,6 +8,7 @@ import {
   PartnerMatch,
   Buchung,
   AuditLog,
+  Task,
 } from './types';
 import {
   SEED_PERSONAL as INITIAL_PERSONAL,
@@ -15,6 +16,7 @@ import {
   SEED_MITTELABRUFE as INITIAL_MITTELABRUFE,
   SEED_VERGABEN as INITIAL_VERGABEN,
   SEED_PARTNER as INITIAL_PARTNERS,
+  SEED_TASKS as INITIAL_TASKS,
 } from './data';
 import { loadLocalStorage as loadFromStorage, saveLocalStorage as saveToStorage } from './utils';
 
@@ -66,6 +68,7 @@ import {
   Search,
   Menu,
   ChevronRight,
+  CheckSquare,
 } from 'lucide-react';
 
 // Subpages import
@@ -78,6 +81,7 @@ import LiquiditaetsPage from './components/pages/LiquiditaetsPage';
 import VergabePage from './components/pages/VergabePage';
 import UseCasePage from './components/pages/UseCasePage';
 import PartnerPage from './components/pages/PartnerPage';
+import AufgabenPage from './components/pages/AufgabenPage';
 import ExcelImportPage from './components/pages/ExcelImportPage';
 import ReportingPage from './components/pages/ReportingPage';
 import AuditLogPage from './components/pages/AuditLogPage';
@@ -108,6 +112,10 @@ export default function App() {
   );
   const [buchungen, setBuchungen] = useState<Buchung[]>(() =>
     sanitizeAndDeduplicate(loadFromStorage('midpct_buchungen', INITIAL_BUCHUNGEN))
+  );
+
+  const [tasks, setTasks] = useState<Task[]>(() =>
+    sanitizeAndDeduplicate(loadFromStorage('midpct_tasks', INITIAL_TASKS))
   );
 
   const [mitarbeiterList, setMitarbeiterList] = useState<string[]>(() =>
@@ -156,6 +164,7 @@ export default function App() {
   useEffect(() => { saveToStorage('midpct_mittelabrufe', mittelabrufe); }, [mittelabrufe]);
   useEffect(() => { saveToStorage('midpct_vergaben', vergaben); }, [vergaben]);
   useEffect(() => { saveToStorage('midpct_partners', partners); }, [partners]);
+  useEffect(() => { saveToStorage('midpct_tasks', tasks); }, [tasks]);
   useEffect(() => { saveToStorage('midpct_matches', matches); }, [matches]);
   useEffect(() => { saveToStorage('midpct_buchungen', buchungen); }, [buchungen]);
   useEffect(() => { saveToStorage('midpct_uc_notes', ucNotes); }, [ucNotes]);
@@ -474,6 +483,41 @@ export default function App() {
     const matchedUc = usecases.find((u) => u.id === ucId);
     const matchedInv = rechnungen.find((r) => r.id === invoiceId);
     writeLog('USECASES', 'UNLINK_BELEG', `Verknüpfung von Rechnung ${matchedInv?.rechnungsnummer} zu Use-Case "${matchedUc?.titel}" aufgehoben.`);
+  };
+
+  // ── TASKS & TO-DO HANDLERS ──
+  const handleAddTask = (task: Omit<Task, 'id' | 'createdAt'>) => {
+    setTasks((prev) => {
+      const nextId = prev.length > 0 ? Math.max(...prev.map((x) => x.id)) + 1 : 1;
+      const item: Task = {
+        ...task,
+        id: nextId,
+        createdAt: new Date().toISOString().slice(0, 10),
+      };
+      writeLog('TASKS', 'CREATE', `Neue Aufgabe "${item.title}" angelegt. Fällig: ${item.dueDate || 'Keine Frist'}`);
+      return [...prev, item];
+    });
+  };
+
+  const handleUpdateTask = (id: number, updated: Partial<Task>) => {
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.id === id) {
+          const item = { ...t, ...updated, updatedAt: new Date().toISOString().slice(0, 10) };
+          writeLog('TASKS', 'UPDATE', `Aufgabe "${item.title}" aktualisiert (Status: ${item.status}).`);
+          return item;
+        }
+        return t;
+      })
+    );
+  };
+
+  const handleDeleteTask = (id: number) => {
+    const matched = tasks.find((t) => t.id === id);
+    setTasks((prev) => prev.filter((t) => t.id !== id));
+    if (matched) {
+      writeLog('TASKS', 'DELETE', `Aufgabe "${matched.title}" gelöscht.`);
+    }
   };
 
   // Partner Database Handlers
@@ -856,6 +900,7 @@ export default function App() {
                 { key: 'vergaben', label: 'Vergabevorgänge', icon: Award },
                 { key: 'usecase', label: 'Use-Case Management', icon: BookOpen },
                 { key: 'partner', label: 'Partner Datenbank', icon: Database },
+                { key: 'aufgaben', label: 'Aufgaben & To-Dos', icon: CheckSquare },
               ].map((item) => {
                 const Icon = item.icon;
                 const isSelected = activePage === item.key;
@@ -1076,6 +1121,8 @@ export default function App() {
                 onAddVergabe={handleAddVergabe}
                 onUpdateVergabe={handleUpdateVergabe}
                 onDeleteVergabe={handleDeleteVergabe}
+                tasks={tasks}
+                onUpdateTask={handleUpdateTask}
               />
             )}
             {activePage === 'usecase' && (
@@ -1094,6 +1141,8 @@ export default function App() {
                 ucInvoices={ucInvoices}
                 onLinkInvoice={handleLinkInvoice}
                 onUnlinkInvoice={handleUnlinkInvoice}
+                tasks={tasks}
+                onUpdateTask={handleUpdateTask}
               />
             )}
             {activePage === 'partner' && (
@@ -1104,6 +1153,17 @@ export default function App() {
                 onUpdatePartner={handleUpdatePartner}
                 onDeletePartner={handleDeletePartner}
                 onToggleMatch={handleToggleMatch}
+              />
+            )}
+            {activePage === 'aufgaben' && (
+              <AufgabenPage
+                tasks={tasks}
+                usecases={usecases}
+                vergaben={vergaben}
+                rechnungen={rechnungen}
+                onAddTask={handleAddTask}
+                onUpdateTask={handleUpdateTask}
+                onDeleteTask={handleDeleteTask}
               />
             )}
             {activePage === 'import' && (
