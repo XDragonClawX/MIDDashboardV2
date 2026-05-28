@@ -1,4 +1,4 @@
-import { PersonalEintrag, Rechnungsbeleg, Mittelabruf, Vergabe, UseCase, Partner, AuditLogItem, EventLogItem } from './types';
+import { PersonalEintrag, Rechnungsbeleg, Mittelabruf, Vergabe, UseCase, Partner, AuditLogItem, EventLogItem, Task } from './types';
 
 // Unveränderliche Fördervereinbarung/Planwerte für die Jahre 2025–2029
 export const AZA_JAHRE = [
@@ -206,4 +206,55 @@ export const SEED_EVENTS: EventLogItem[] = [
   { id: 2, titel: 'Design Thinking Workshop Use Cases', datum: '2025-11-21', beschreibung: 'Zentraler Workshop zur Konkretisierung und Schärfung der Batch 1 Pilotversuche.', ort: 'WIN.DN Gründerzentrum, Raum Zukunftsstoff', akteure: 'Sihl GmbH, Skopos Nova, WIN.DN', kategorie: 'Workshop' },
   { id: 3, titel: 'Regionalforum Strukturwandel', datum: '2026-01-28', beschreibung: 'Präsentation des Projekts Zukunftsstoff als Best-Practice für Industrietransformation.', ort: 'Forschungszentrum Jülich, Audimax', akteure: 'WIN.DN, Ministerium für Wirtschaft NRW, BioökonomieREVIER', kategorie: 'Netzwerktreffen' },
   { id: 4, titel: 'Sitzung Lenkungskreis Q2-2026', datum: '2026-06-15', beschreibung: 'Reguläre Abstimmung über Fortschritte und Freigaben der neuen Vergabewellen.', ort: 'Rathaus Düren, Konferenzraum', akteure: 'Fördermittelausschuss, WIN.DN GmbH, BAFA Prüfstelle', kategorie: 'Ausschuss' },
+];
+
+export const SEED_TASKS: Task[] = [
+  {
+    id: 1,
+    title: 'Abstimmung Lastensteuerung definieren',
+    description: 'Klärung der Netzentgelt-Gesetzentwürfe und Abstimmung der Hardware-Schnittstellen mit minimum energy.',
+    dueDate: '2026-06-15',
+    status: 'in_bearbeitung',
+    priority: 'hoch',
+    useCaseId: 3,
+    vergabeId: null,
+    rechnungId: null,
+    createdAt: '2026-05-10',
+  },
+  {
+    id: 2,
+    title: 'Maschinenpark-Handbücher in SharePoint hochladen',
+    description: 'Vollständiges Hochladen aller digitalisierten PDF-Dokumente und Störungshistorien für Sihl GmbH im SharePoint-Ordner.',
+    dueDate: '2026-06-30',
+    status: 'offen',
+    priority: 'mittel',
+    useCaseId: 2,
+    vergabeId: null,
+    rechnungId: null,
+    createdAt: '2026-05-15',
+  },
+  {
+    id: 3,
+    title: 'Prüfungsnotizen der Kanzlei bewerten',
+    description: 'Juristische Durchsicht der Ergebnisse des Vergabemodells für den Transformations-Booster.',
+    dueDate: '2026-06-10',
+    status: 'offen',
+    priority: 'hoch',
+    useCaseId: null,
+    vergabeId: 4,
+    rechnungId: null,
+    createdAt: '2026-05-20',
+  },
+  {
+    id: 4,
+    title: 'GEMA-Gebührenbeleg final prüfen',
+    description: 'GEMA-Abrechnung auf Förderfähigkeit kontrollieren und an die Buchhaltung weiterleiten.',
+    dueDate: '2026-06-05',
+    status: 'erledigt',
+    priority: 'niedrig',
+    useCaseId: null,
+    vergabeId: null,
+    rechnungId: 4,
+    createdAt: '2026-05-02',
+  }
 ];

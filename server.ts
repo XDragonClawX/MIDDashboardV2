@@ -4,7 +4,7 @@ import { createServer as createViteServer } from 'vite';
 
 async function startServer() {
   const app = express();
-  const PORT = 5000;
+  const PORT = 3000;
 
   // Add middleware to parse JSON
   app.use(express.json());

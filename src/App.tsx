@@ -15,7 +15,6 @@ import {
   SEED_MITTELABRUFE as INITIAL_MITTELABRUFE,
   SEED_VERGABEN as INITIAL_VERGABEN,
   SEED_PARTNER as INITIAL_PARTNERS,
-  SEED_USECASES as INITIAL_USECASES,
 } from './data';
 import { loadLocalStorage as loadFromStorage, saveLocalStorage as saveToStorage } from './utils';
 
@@ -178,7 +177,26 @@ export default function App() {
   // Use Case Seed structures
   const [usecases, setUsecases] = useState<any[]>(() => {
     const loaded = loadFromStorage('midpct_usecases', []);
-    return sanitizeAndDeduplicate(loaded, INITIAL_USECASES);
+    const filtered = loaded.filter((uc: any) => {
+      if (!uc) return false;
+      const batchStr = String(uc.batch || '').replace(/\s+/g, '').toLowerCase();
+      if (batchStr === 'batch1' || batchStr.includes('batch1')) {
+        return false;
+      }
+      
+      const titleLower = String(uc.titel || '').toLowerCase();
+      if (
+        titleLower.includes('chemisches recycling von kunststoff') ||
+        titleLower.includes('ki-basierter chatbot für den maschinenpark') ||
+        titleLower.includes('starke netze — peak-shaving') ||
+        titleLower.includes('starke netze - peak-shaving mit ki')
+      ) {
+        return false;
+      }
+      
+      return true;
+    });
+    return sanitizeAndDeduplicate(filtered);
   });
   useEffect(() => { saveToStorage('midpct_usecases', usecases); }, [usecases]);
 

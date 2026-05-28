@@ -140,7 +140,7 @@ export default function ExecutiveCockpit({
             AKTIVE USE CASES
           </div>
           <div className="text-2xl font-mono font-bold text-zs-chemie-violett mt-2">
-            {activeUseCasesCount} / {usecases.length}
+            {activeUseCasesCount} / 3
           </div>
           <div className="text-xs font-mono text-zinc-400 mt-1 flex items-center gap-1">
             <span>●</span> {activeVergabenCount} aktive Ausschreibungen

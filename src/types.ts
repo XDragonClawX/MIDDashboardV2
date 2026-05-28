@@ -107,6 +107,20 @@ export interface UseCase {
   updatedAt?: string;
 }
 
+export interface Task {
+  id: number;
+  title: string;
+  description: string;
+  dueDate: string | null;
+  status: 'offen' | 'in_bearbeitung' | 'erledigt';
+  priority: 'niedrig' | 'mittel' | 'hoch';
+  useCaseId?: number | null; // Associated Use Case
+  vergabeId?: number | null; // Associated Vergabe
+  rechnungId?: number | null; // Associated Rechnung
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface UCNotiz {
   id: number;
   type: 'update' | 'meilenstein' | 'problem' | 'meeting';
