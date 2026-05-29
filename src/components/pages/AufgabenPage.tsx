@@ -759,6 +759,7 @@ export default function AufgabenPage({
 
 // ── TASK CARD INTERNAL HELPER COMPONENT (BOARD VIEW) ──
 interface TaskCardProps {
+  key?: React.Key;
   task: Task;
   onToggleStatus: (t: Task) => void;
   onEdit: (t: Task) => void;

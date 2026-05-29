@@ -171,12 +171,15 @@ export default function App() {
   useEffect(() => { saveToStorage('midpct_uc_invoices', ucInvoices); }, [ucInvoices]);
   useEffect(() => { saveToStorage('midpct_audit_logs', logs); }, [logs]);
 
-  // Listener to catch Ctrl+K to popup search overlay
+  // Listener to catch Ctrl+K to popup search overlay, and Escape to close
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();
         setSearchOpen((prev) => !prev);
+      }
+      if (e.key === 'Escape') {
+        setSearchOpen(false);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -768,13 +771,19 @@ export default function App() {
 
     // Search invoices
     rechnungen.forEach((r) => {
+      const rechnungsnummer = r.rechnungsnummer || '';
+      const rechnungssteller = r.rechnungssteller || '';
+      const kostenkategorie = r.kostenkategorie || '';
+      const beschreibung = r.leistungsbeschreibung || '';
+
       if (
-        r.rechnungsnummer.toLowerCase().includes(q) ||
-        r.rechnungssteller.toLowerCase().includes(q) ||
-        r.kostenkategorie.toLowerCase().includes(q)
+        rechnungsnummer.toLowerCase().includes(q) ||
+        rechnungssteller.toLowerCase().includes(q) ||
+        kostenkategorie.toLowerCase().includes(q) ||
+        beschreibung.toLowerCase().includes(q)
       ) {
         results.push({
-          text: `Invoice #${r.rechnungsnummer} von ${r.rechnungssteller} (${r.kostenkategorie})`,
+          text: `Rechnung #${rechnungsnummer} von ${rechnungssteller} (${kostenkategorie})`,
           page: 'rechnungen',
           category: 'Rechnungsbelege',
         });
@@ -783,10 +792,14 @@ export default function App() {
 
     // Search personal
     personal.forEach((p) => {
-      const full = `${p.vorname} ${p.nachname}`.toLowerCase();
-      if (full.includes(q) || p.position.toLowerCase().includes(q)) {
+      const mitarbeiter = p.mitarbeiter || '';
+      const bemerkung = p.bemerkung || '';
+      if (
+        mitarbeiter.toLowerCase().includes(q) ||
+        bemerkung.toLowerCase().includes(q)
+      ) {
         results.push({
-          text: `Mitarbeiter ${p.vorname} ${p.nachname} - Stelle: ${p.position}`,
+          text: `Mitarbeiter-Eintrag: ${mitarbeiter} (Jahr ${p.foerderjahr || ''}, Q${p.quartal || ''})`,
           page: 'personal',
           category: 'Personalbelege',
         });
@@ -795,9 +808,19 @@ export default function App() {
 
     // Search vergabe
     vergaben.forEach((v) => {
-      if (v.titel.toLowerCase().includes(q) || v.auftragnehmer.toLowerCase().includes(q)) {
+      const titel = v.titel || '';
+      const auftragnehmer = v.auftragnehmer || '';
+      const vergabeart = v.vergabeart || '';
+      const notizen = v.notizen || '';
+
+      if (
+        titel.toLowerCase().includes(q) ||
+        auftragnehmer.toLowerCase().includes(q) ||
+        vergabeart.toLowerCase().includes(q) ||
+        notizen.toLowerCase().includes(q)
+      ) {
         results.push({
-          text: `Ausschreibung: ${v.titel} (Bieter: ${v.auftragnehmer || 'keiner'})`,
+          text: `Ausschreibung: ${titel} (Bieter: ${auftragnehmer || 'keiner'})`,
           page: 'vergaben',
           category: 'Ausschreibungen/Vergabe',
         });
@@ -806,9 +829,21 @@ export default function App() {
 
     // Search usecases
     usecases.forEach((u) => {
-      if (u.titel.toLowerCase().includes(q) || u.unternehmen.toLowerCase().includes(q)) {
+      const titel = u.titel || '';
+      const unternehmen = u.unternehmen || '';
+      const ansprechpartner = u.ansprechpartner || '';
+      const branche = u.branche || '';
+      const notizen = u.notizen || '';
+
+      if (
+        titel.toLowerCase().includes(q) ||
+        unternehmen.toLowerCase().includes(q) ||
+        ansprechpartner.toLowerCase().includes(q) ||
+        branche.toLowerCase().includes(q) ||
+        notizen.toLowerCase().includes(q)
+      ) {
         results.push({
-          text: `Use-Case: ${u.titel} (${u.unternehmen})`,
+          text: `Use-Case: ${titel} (${unternehmen})`,
           page: 'usecase',
           category: 'Transformationspiloten',
         });
@@ -830,6 +865,14 @@ export default function App() {
   return (
     <div className="min-h-screen bg-zinc-50 flex font-sans text-zinc-800 antialiased selection:bg-zs-signal-gelb/40 selection:text-zs-blau-schwarz">
       
+      {/* Sidebar background backdrop overlay for mobile/tablet */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-[#041422]/70 backdrop-blur-xs z-20 xl:hidden transition-opacity duration-300 cursor-pointer"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
       {/* ── SIDEBAR NAVIGATION ── */}
       <aside
         className={`fixed inset-y-0 left-0 z-30 w-64 bg-[#041422] text-zinc-300 border-r border-[#1b2f42] flex flex-col justify-between transform transition-transform duration-300 xl:translate-x-0 xl:static xl:h-screen ${
@@ -1047,7 +1090,7 @@ export default function App() {
 
         {/* ── CORE VIEW PAGES INJECTOR ── */}
         <main className="flex-grow p-6 overflow-y-auto scrollbar-thin bg-zinc-50/50 print:p-0">
-          <div className="max-w-7xl mx-auto pb-12 print:pb-0">
+          <div className={`${activePage === 'cockpit' ? 'max-w-full px-2 lg:px-6' : 'max-w-7xl'} mx-auto pb-12 print:pb-0`}>
             {activePage === 'cockpit' && (
               <ExecutiveCockpit
                 personal={personal}
@@ -1057,6 +1100,8 @@ export default function App() {
                 vergaben={vergaben}
                 activeYear={activeYear}
                 activeYearLabel={activeYearLabel}
+                tasks={tasks}
+                onUpdateTask={handleUpdateTask}
               />
             )}
             {activePage === 'budget' && (
