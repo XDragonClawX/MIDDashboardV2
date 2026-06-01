@@ -56,6 +56,12 @@ interface ExecutiveCockpitProps {
   activeYearLabel: string;
   tasks?: Task[];
   onUpdateTask?: (id: number, task: Partial<Task>) => void;
+  onNavigateDetail?: (page: string, filters: {
+    personalQuarter?: string;
+    rechnungenKategorie?: string;
+    mittelabrufeGeber?: string;
+    aufgabenStatus?: string;
+  }) => void;
 }
 
 export default function ExecutiveCockpit({
@@ -68,6 +74,7 @@ export default function ExecutiveCockpit({
   activeYearLabel,
   tasks = [],
   onUpdateTask,
+  onNavigateDetail,
 }: ExecutiveCockpitProps) {
   
   const [isFlowCollapsed, setIsFlowCollapsed] = React.useState(false);
@@ -620,7 +627,21 @@ export default function ExecutiveCockpit({
                       dataKey="value"
                     >
                       {budgetSplitData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
+                        <Cell 
+                          key={`cell-${index}`} 
+                          fill={entry.color} 
+                          onClick={() => {
+                            if (!onNavigateDetail) return;
+                            if (entry.name.includes('BAFA')) {
+                              onNavigateDetail('mittelabrufe', { mittelabrufeGeber: 'BAFA_BUND' });
+                            } else if (entry.name.includes('LHO')) {
+                              onNavigateDetail('mittelabrufe', { mittelabrufeGeber: 'LHO_LAND' });
+                            } else {
+                              onNavigateDetail('budget', {});
+                            }
+                          }}
+                          className="cursor-pointer hover:opacity-80 transition-opacity"
+                        />
                       ))}
                     </Pie>
                     <Tooltip formatter={(value: number) => [formatEuro(value, 2), 'Planbetrag']} />
@@ -651,15 +672,41 @@ export default function ExecutiveCockpit({
                 <span className="text-[10px] font-mono font-extrabold text-zinc-400 uppercase">Laufende Lohnkosten (Quartal)</span>
                 <span className="text-[9px] font-mono bg-zinc-100 p-0.5 px-1.5 rounded border border-zinc-200 text-zinc-650">AG-Ist</span>
               </div>
-              <div className="h-44 bg-zinc-50/50 p-2.5 rounded-xl border border-zinc-150">
+              <div id="cockpit-chart-container" className="h-44 bg-zinc-50/50 p-2.5 rounded-xl border border-zinc-150">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={quarterData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" horizontalFill={['#ffffff', '#f1f5f9']} fillOpacity={0.8} />
                     <XAxis dataKey="name" fontSize={9} fontClassName="font-mono" stroke="#94A3B8" tickLine={false} />
                     <YAxis fontSize={8} fontClassName="font-mono" stroke="#94A3B8" tickLine={false} axisLine={false} tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} />
                     <Tooltip content={<CustomTooltip />} />
-                    <Bar name="Lohnkosten IST" dataKey="AG-Kosten" fill="#041422" radius={[3, 3, 0, 0]} maxBarSize={18} />
-                    <Bar name="Zuwendungsfähig" dataKey="Förderfähig" fill="#58B49D" radius={[3, 3, 0, 0]} maxBarSize={18} />
+                    <Bar 
+                      name="Lohnkosten IST" 
+                      dataKey="AG-Kosten" 
+                      fill="#041422" 
+                      radius={[3, 3, 0, 0]} 
+                      maxBarSize={18} 
+                      onClick={(data) => {
+                        if (onNavigateDetail && data && data.name) {
+                          onNavigateDetail('personal', { personalQuarter: data.name });
+                        }
+                      }}
+                      className="cursor-pointer hover:opacity-85 transition-opacity"
+                    />
+                    <Bar 
+                      name="Zuwendungsfähig" 
+                      dataKey="Förderfähig" 
+                      fill="#cbd5e1" 
+                      stroke="#041422" 
+                      strokeWidth={1} 
+                      radius={[3, 3, 0, 0]} 
+                      maxBarSize={18} 
+                      onClick={(data) => {
+                        if (onNavigateDetail && data && data.name) {
+                          onNavigateDetail('personal', { personalQuarter: data.name });
+                        }
+                      }}
+                      className="cursor-pointer hover:opacity-85 transition-opacity"
+                    />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -705,8 +752,42 @@ export default function ExecutiveCockpit({
                     <YAxis fontSize={8} fontClassName="font-mono" stroke="#94A3B8" tickLine={false} axisLine={false} tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k €` : `${v} €`} />
                     <Tooltip content={<CustomTooltip />} />
                     <Legend iconType="circle" wrapperStyle={{ fontSize: 9, fontFamily: 'monospace', paddingTop: 8 }} />
-                    <Bar name="Soll Beantragt" dataKey="Beantragt" fill="#94A3B8" radius={[3, 3, 0, 0]} maxBarSize={20} />
-                    <Bar name="Ist Eingegangen" dataKey="Eingegangen" fill="#58B49D" radius={[3, 3, 0, 0]} maxBarSize={20} />
+                    <Bar 
+                      name="Soll Beantragt" 
+                      dataKey="Beantragt" 
+                      fill="#94A3B8" 
+                      radius={[3, 3, 0, 0]} 
+                      maxBarSize={20} 
+                      onClick={(data) => {
+                        if (onNavigateDetail && data) {
+                          const name = data.name || data.payload?.name;
+                          if (name === 'Bund') {
+                            onNavigateDetail('mittelabrufe', { mittelabrufeGeber: 'BAFA_BUND' });
+                          } else if (name === 'Land') {
+                            onNavigateDetail('mittelabrufe', { mittelabrufeGeber: 'LHO_LAND' });
+                          }
+                        }
+                      }}
+                      className="cursor-pointer hover:opacity-85 transition-opacity"
+                    />
+                    <Bar 
+                      name="Ist Eingegangen" 
+                      dataKey="Eingegangen" 
+                      fill="#58B49D" 
+                      radius={[3, 3, 0, 0]} 
+                      maxBarSize={20} 
+                      onClick={(data) => {
+                        if (onNavigateDetail && data) {
+                          const name = data.name || data.payload?.name;
+                          if (name === 'Bund') {
+                            onNavigateDetail('mittelabrufe', { mittelabrufeGeber: 'BAFA_BUND' });
+                          } else if (name === 'Land') {
+                            onNavigateDetail('mittelabrufe', { mittelabrufeGeber: 'LHO_LAND' });
+                          }
+                        }
+                      }}
+                      className="cursor-pointer hover:opacity-85 transition-opacity"
+                    />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -733,7 +814,18 @@ export default function ExecutiveCockpit({
                       <XAxis type="number" fontSize={8} stroke="#94A3B8" tickLine={false} tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
                       <YAxis type="category" dataKey="name" stroke="#041422" fontSize={8} tickLine={false} width={60} />
                       <Tooltip formatter={(v: number) => [formatEuro(v, 2), 'Betrag']} />
-                      <Bar dataKey="value" fill="#BA8B68" radius={[0, 3, 3, 0]} maxBarSize={10} />
+                      <Bar 
+                        dataKey="value" 
+                        fill="#BA8B68" 
+                        radius={[0, 3, 3, 0]} 
+                        maxBarSize={10} 
+                        onClick={(data) => {
+                          if (onNavigateDetail && data && data.name) {
+                            onNavigateDetail('rechnungen', { rechnungenKategorie: data.name });
+                          }
+                        }}
+                        className="cursor-pointer hover:opacity-85 transition-opacity"
+                      />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -785,7 +877,16 @@ export default function ExecutiveCockpit({
                         dataKey="value"
                       >
                         {taskStatusData.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
+                          <Cell 
+                            key={`cell-${index}`} 
+                            fill={entry.color} 
+                            onClick={() => {
+                              if (!onNavigateDetail) return;
+                              const statusKey = entry.name === 'Erledigt' ? 'erledigt' : 'offen';
+                              onNavigateDetail('aufgaben', { aufgabenStatus: statusKey });
+                            }}
+                            className="cursor-pointer hover:opacity-80 transition-opacity"
+                          />
                         ))}
                       </Pie>
                       <Tooltip />

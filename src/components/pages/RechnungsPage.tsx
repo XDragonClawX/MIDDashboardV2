@@ -9,6 +9,8 @@ interface RechnungsPageProps {
   activeYearLabel: string;
   onAddRechnung: (invoice: Omit<Rechnungsbeleg, 'id'>) => void;
   onUpdateRechnungStatus: (id: number, newStatus: Rechnungsbeleg['status']) => void;
+  initialCategory?: string;
+  onCategoryChange?: (category: string) => void;
 }
 
 export default function RechnungsPage({
@@ -17,15 +19,24 @@ export default function RechnungsPage({
   activeYearLabel,
   onAddRechnung,
   onUpdateRechnungStatus,
+  initialCategory = 'all',
+  onCategoryChange,
 }: RechnungsPageProps) {
   // Local states
   const [showAddModal, setShowAddModal] = useState(false);
   const [activeDropdownId, setActiveDropdownId] = useState<number | null>(null);
 
   // Filters state
-  const [filterKat, setFilterKat] = useState('');
+  const [filterKat, setFilterKat] = useState(initialCategory === 'all' ? '' : initialCategory);
   const [filterStatus, setFilterStatus] = useState('');
   const [filterYear, setFilterYear] = useState('');
+
+  // Sync prop filter with local state
+  React.useEffect(() => {
+    if (initialCategory !== undefined) {
+      setFilterKat(initialCategory === 'all' ? '' : initialCategory);
+    }
+  }, [initialCategory]);
 
   // Form states
   const [rSteller, setRSteller] = useState('');
@@ -198,8 +209,14 @@ export default function RechnungsPage({
         <span className="font-mono text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Filter:</span>
         <select
           value={filterKat}
-          onChange={(e) => setFilterKat(e.target.value)}
-          className="text-xs bg-zinc-50 border border-zinc-300 rounded-md px-2.5 py-1.5 focus:border-zs-blau-schwarz cursor-pointer"
+          onChange={(e) => {
+            const val = e.target.value;
+            setFilterKat(val);
+            if (onCategoryChange) {
+              onCategoryChange(val || 'all');
+            }
+          }}
+          className="text-xs bg-zinc-50 border border-zinc-300 rounded-md px-2.5 py-1.5 focus:border-zs-blau-schwarz cursor-pointer font-medium"
         >
           <option value="">Alle Kategorien</option>
           {KATEGORIEN.map((k) => (
@@ -229,11 +246,19 @@ export default function RechnungsPage({
           <option value="2028">2028</option>
           <option value="2029">2029</option>
         </select>
+        {filterKat && (
+          <span className="text-xs font-mono bg-[#BA8B68]/10 text-zs-papier-braun font-black px-2.5 py-1 rounded border border-zs-papier-braun/20 animate-pulse">
+            Gebohrt: {filterKat}
+          </span>
+        )}
         <button
           onClick={() => {
             setFilterKat('');
             setFilterStatus('');
             setFilterYear('');
+            if (onCategoryChange) {
+              onCategoryChange('all');
+            }
           }}
           className="text-xs font-mono text-zinc-400 hover:text-zs-blau-schwarz transition-all cursor-pointer underline decoration-dotted ml-auto"
         >

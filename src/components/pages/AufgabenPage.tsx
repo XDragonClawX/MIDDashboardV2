@@ -27,6 +27,8 @@ interface AufgabenPageProps {
   onAddTask: (task: Omit<Task, 'id' | 'createdAt'>) => void;
   onUpdateTask: (id: number, task: Partial<Task>) => void;
   onDeleteTask: (id: number) => void;
+  initialStatus?: string;
+  onStatusChange?: (status: string) => void;
 }
 
 export default function AufgabenPage({
@@ -36,14 +38,23 @@ export default function AufgabenPage({
   rechnungen,
   onAddTask,
   onUpdateTask,
-  onDeleteTask
+  onDeleteTask,
+  initialStatus = 'all',
+  onStatusChange
 }: AufgabenPageProps) {
   // Tabs and general UI filter states
   const [viewMode, setViewMode] = useState<'board' | 'list'>('board');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterPriority, setFilterPriority] = useState<string>('all');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [filterStatus, setFilterStatus] = useState<string>(initialStatus);
   const [filterModule, setFilterModule] = useState<'all' | 'usecase' | 'vergabe' | 'rechnung'>('all');
+
+  // Sync prop status with local state
+  React.useEffect(() => {
+    if (initialStatus !== undefined) {
+      setFilterStatus(initialStatus);
+    }
+  }, [initialStatus]);
 
   // Modal / Form states
   const [showModal, setShowModal] = useState(false);
@@ -285,8 +296,14 @@ export default function AufgabenPage({
           {/* Status filter */}
           <select
             value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value)}
-            className="bg-zinc-50 border border-zinc-200 rounded-lg p-1.5 px-2 text-xs outline-none"
+            onChange={(e) => {
+              const val = e.target.value;
+              setFilterStatus(val);
+              if (onStatusChange) {
+                onStatusChange(val);
+              }
+            }}
+            className="bg-zinc-50 border border-zinc-200 rounded-lg p-1.5 px-2 text-xs outline-none font-medium cursor-pointer"
           >
             <option value="all">Alle Stati</option>
             <option value="offen">Offen</option>

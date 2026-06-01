@@ -12,6 +12,8 @@ interface PersonalkostenPageProps {
   onUpdateMitarbeiterList: (newList: string[]) => void;
   onRenameMitarbeiterGlobal: (oldName: string, newName: string) => void;
   onRenameSingleMitarbeiter: (id: number, newName: string) => void;
+  initialQuarter?: string;
+  onQuarterChange?: (quarter: string) => void;
 }
 
 export default function PersonalkostenPage({
@@ -24,6 +26,8 @@ export default function PersonalkostenPage({
   onUpdateMitarbeiterList,
   onRenameMitarbeiterGlobal,
   onRenameSingleMitarbeiter,
+  initialQuarter = 'all',
+  onQuarterChange,
 }: PersonalkostenPageProps) {
   // Local states
   const [showAddModal, setShowAddModal] = useState(false);
@@ -52,12 +56,18 @@ export default function PersonalkostenPage({
   const bafaPreview = foerderfaehigPreview * 0.90;
   const lhoPreview = foerderfaehigPreview * 0.075;
 
-  // Yearly filtration
+  // Yearly and Quarterly filtration
   const filteredPersonal = personal.filter((p) => {
-    if (!activeYear) return true;
-    if (activeYear === 'gesamt25') return p.jahr === 2025 && p.monat >= 4;
-    if (activeYear === 'mrz29') return p.jahr === 2029 && p.monat <= 3;
-    return String(p.jahr) === String(activeYear);
+    if (activeYear) {
+      if (activeYear === 'gesamt25' && !(p.jahr === 2025 && p.monat >= 4)) return false;
+      if (activeYear === 'mrz29' && !(p.jahr === 2029 && p.monat <= 3)) return false;
+      if (activeYear !== 'gesamt25' && activeYear !== 'mrz29' && String(p.jahr) !== String(activeYear)) return false;
+    }
+    if (initialQuarter && initialQuarter !== 'all') {
+      const qNum = parseInt(initialQuarter.replace('Q', ''));
+      if (p.quartal !== qNum) return false;
+    }
+    return true;
   });
 
   const totAgKosten = filteredPersonal.reduce((s, p) => s + p.agKosten, 0);
@@ -200,6 +210,39 @@ export default function PersonalkostenPage({
             + Eintrag erfassen
           </button>
         </div>
+      </div>
+
+      {/* Interactive Quarter Filter control bar */}
+      <div className="bg-white p-4 rounded-xl border border-zinc-200 flex flex-wrap gap-4 items-center justify-between">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-mono font-bold text-zinc-400 uppercase">Quartal filtern:</span>
+          <div className="flex flex-wrap gap-1">
+            {['all', 'Q1', 'Q2', 'Q3', 'Q4'].map((q) => {
+              const isSelected = initialQuarter === q;
+              return (
+                <button
+                  key={q}
+                  onClick={() => onQuarterChange && onQuarterChange(q)}
+                  className={`px-3 py-1 text-xs font-mono font-semibold rounded-full border transition-all cursor-pointer ${
+                    isSelected
+                      ? 'bg-zs-blau-schwarz text-white border-zs-blau-schwarz'
+                      : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:bg-zinc-100'
+                  }`}
+                >
+                  {q === 'all' ? 'Alle Quartale' : q}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        {initialQuarter !== 'all' && (
+          <button
+            onClick={() => onQuarterChange && onQuarterChange('all')}
+            className="text-[10px] font-mono font-bold text-[#D04C3D] hover:underline flex items-center gap-1 bg-red-50 px-2 py-1 rounded border border-red-200/50 cursor-pointer"
+          >
+            ✕ Filter aufheben
+          </button>
+        )}
       </div>
 
       {/* Stats row */}

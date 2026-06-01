@@ -158,6 +158,12 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
+  // Drill-down filtering states from Cockpit chart clicks
+  const [personalQuarterFilter, setPersonalQuarterFilter] = useState<string>('all');
+  const [rechnungenKategorieFilter, setRechnungenKategorieFilter] = useState<string>('all');
+  const [mittelabrufeGeberFilter, setMittelabrufeGeberFilter] = useState<string>('all');
+  const [aufgabenStatusFilter, setAufgabenStatusFilter] = useState<string>('all');
+
   // Auto-Persist trigger when states update
   useEffect(() => { saveToStorage('midpct_personal', personal); }, [personal]);
   useEffect(() => { saveToStorage('midpct_rechnungen', rechnungen); }, [rechnungen]);
@@ -1102,6 +1108,21 @@ export default function App() {
                 activeYearLabel={activeYearLabel}
                 tasks={tasks}
                 onUpdateTask={handleUpdateTask}
+                onNavigateDetail={(page, filters) => {
+                  if (filters.personalQuarter !== undefined) {
+                    setPersonalQuarterFilter(filters.personalQuarter);
+                  }
+                  if (filters.rechnungenKategorie !== undefined) {
+                    setRechnungenKategorieFilter(filters.rechnungenKategorie);
+                  }
+                  if (filters.mittelabrufeGeber !== undefined) {
+                    setMittelabrufeGeberFilter(filters.mittelabrufeGeber);
+                  }
+                  if (filters.aufgabenStatus !== undefined) {
+                    setAufgabenStatusFilter(filters.aufgabenStatus);
+                  }
+                  setActivePage(page);
+                }}
               />
             )}
             {activePage === 'budget' && (
@@ -1128,6 +1149,8 @@ export default function App() {
                 onUpdateMitarbeiterList={setMitarbeiterList}
                 onRenameMitarbeiterGlobal={handleRenameMitarbeiterGlobal}
                 onRenameSingleMitarbeiter={handleRenameSingleMitarbeiter}
+                initialQuarter={personalQuarterFilter}
+                onQuarterChange={setPersonalQuarterFilter}
               />
             )}
             {activePage === 'rechnungen' && (
@@ -1137,6 +1160,8 @@ export default function App() {
                 activeYearLabel={activeYearLabel}
                 onAddRechnung={handleAddRechnung}
                 onUpdateRechnungStatus={(id, newStatus) => handleUpdateRechnung(id, { status: newStatus })}
+                initialCategory={rechnungenKategorieFilter}
+                onCategoryChange={setRechnungenKategorieFilter}
               />
             )}
             {activePage === 'mittelabrufe' && (
@@ -1146,6 +1171,8 @@ export default function App() {
                 activeYearLabel={activeYearLabel}
                 onAddMittelabruf={handleAddMittelabruf}
                 onUpdateMittelabrufStatus={handleUpdateMittelabrufStatus}
+                initialGeber={mittelabrufeGeberFilter}
+                onGeberChange={setMittelabrufeGeberFilter}
               />
             )}
             {activePage === 'liqui' && (
@@ -1209,6 +1236,8 @@ export default function App() {
                 onAddTask={handleAddTask}
                 onUpdateTask={handleUpdateTask}
                 onDeleteTask={handleDeleteTask}
+                initialStatus={aufgabenStatusFilter}
+                onStatusChange={setAufgabenStatusFilter}
               />
             )}
             {activePage === 'import' && (

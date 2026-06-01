@@ -9,6 +9,8 @@ interface MittelabrufePageProps {
   activeYearLabel: string;
   onAddMittelabruf: (abruf: Omit<Mittelabruf, 'id'>) => void;
   onUpdateMittelabrufStatus: (id: number, newStatus: Mittelabruf['status']) => void;
+  initialGeber?: string;
+  onGeberChange?: (geber: string) => void;
 }
 
 export default function MittelabrufePage({
@@ -17,10 +19,21 @@ export default function MittelabrufePage({
   activeYearLabel,
   onAddMittelabruf,
   onUpdateMittelabrufStatus,
+  initialGeber = 'all',
+  onGeberChange,
 }: MittelabrufePageProps) {
   // Local states
   const [showAddModal, setShowAddModal] = useState(false);
   const [activeDropdownId, setActiveDropdownId] = useState<number | null>(null);
+
+  // Filter geber state
+  const [filterGeber, setFilterGeber] = useState(initialGeber === 'all' ? '' : initialGeber);
+
+  React.useEffect(() => {
+    if (initialGeber !== undefined) {
+      setFilterGeber(initialGeber === 'all' ? '' : initialGeber);
+    }
+  }, [initialGeber]);
 
   // Kassenschluss Checklist items (Priority 1)
   const [checklist, setChecklist] = useState([
@@ -47,12 +60,15 @@ export default function MittelabrufePage({
   const deadlineDate = new Date(currentYear, 10, 15); // Nov 15th
   const daysLeft = Math.ceil((deadlineDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
-  // Filtration based on global year
+  // Filtration based on global year and Mittelgeber
   const filteredAbrufe = mittelabrufe.filter((a) => {
-    if (!activeYear) return true;
-    if (activeYear === 'gesamt25') return a.foerderjahr === 2025;
-    if (activeYear === 'mrz29') return a.foerderjahr === 2029;
-    return String(a.foerderjahr) === String(activeYear);
+    if (activeYear) {
+      if (activeYear === 'gesamt25' && a.foerderjahr !== 2025) return false;
+      if (activeYear === 'mrz29' && a.foerderjahr !== 2029) return false;
+      if (activeYear !== 'gesamt25' && activeYear !== 'mrz29' && String(a.foerderjahr) !== String(activeYear)) return false;
+    }
+    if (filterGeber && a.mittelgeber !== filterGeber) return false;
+    return true;
   });
 
   const totBeantragt = filteredAbrufe.reduce((s, a) => s + a.beantragt, 0);
@@ -230,6 +246,54 @@ export default function MittelabrufePage({
             )}
           </div>
         </div>
+      </div>
+
+      {/* Interactive Mittelgeber Filter row */}
+      <div className="bg-white p-4 rounded-xl border border-zinc-200 flex flex-wrap gap-4 items-center justify-between">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-mono font-bold text-zinc-400 uppercase">Mittelgeber filtern:</span>
+          <div className="flex flex-wrap gap-1">
+            {[
+              { key: 'all', label: 'Alle Mittelgeber' },
+              { key: 'BAFA_BUND', label: 'BAFA Bund (90%)' },
+              { key: 'LHO_LAND', label: 'LHO NRW (7.5%)' },
+            ].map((g) => {
+              const isSelected = (g.key === 'all' && !filterGeber) || filterGeber === g.key;
+              return (
+                <button
+                  key={g.key}
+                  onClick={() => {
+                    const nextVal = g.key === 'all' ? '' : g.key;
+                    setFilterGeber(nextVal);
+                    if (onGeberChange) {
+                      onGeberChange(g.key);
+                    }
+                  }}
+                  className={`px-3 py-1 text-xs font-mono font-semibold rounded-full border transition-all cursor-pointer ${
+                    isSelected
+                      ? 'bg-zs-blau-schwarz text-white border-zs-blau-schwarz'
+                      : 'bg-zinc-50 border-zinc-200 text-zinc-650 hover:bg-zinc-100'
+                  }`}
+                >
+                  {g.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        {filterGeber && (
+          <button
+            onClick={() => {
+              setFilterGeber('');
+              if (onGeberChange) {
+                onGeberChange('all');
+              }
+            }}
+            className="text-[10px] font-mono font-bold text-[#D04C3D] hover:underline flex items-center gap-1 bg-red-50 px-2 py-1 rounded border border-red-200/50 cursor-pointer"
+          >
+            ✕ Filter aufheben
+          </button>
+        )}
       </div>
 
       {/* Tabular view of Abrufe */}
