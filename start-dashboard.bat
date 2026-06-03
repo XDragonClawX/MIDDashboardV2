@@ -1,119 +1,111 @@
 @echo off
-:: Set coding profile to UTF-8 to display German special characters correctly
+setlocal EnableDelayedExpansion
 chcp 65001 >nul
 title Zukunftstoff MiD-PCT Dashboard Launcher
 
+:: Ins Verzeichnis der Batch-Datei wechseln (wichtig bei Doppelklick!)
+cd /d "%~dp0"
+
 echo =======================================================================
-echo              MiD-PCT Fördermittel-Dashboard V2 Launcher
+echo              MiD-PCT Foerdermittel-Dashboard V2 Launcher
 echo =======================================================================
 echo.
-echo Dieses Skript prüft Ihre Umgebung und startet das Dashboard im Browser.
-echo Erforderlich: Node.js (https://nodejs.org)
+echo Arbeitsverzeichnis: %CD%
 echo.
 
-:: 1. Prüfen ob Node.js installiert ist
+:: 1. Pruefen ob Node.js installiert ist
 where node >nul 2>nul
-if %errorlevel% neq 0 (
-    echo [HINWEIS] Node.js wurde auf diesem System nicht gefunden.
-    echo Versuche automatischen Fallback über Python (keine Installationen notwendig)...
-    echo.
-    goto :TRY_PYTHON
-)
+if !errorlevel! neq 0 goto :TRY_PYTHON
 
-:: Node.js Pfad - Standardmäßig laden
-:: 2. Prüfen ob Abhängigkeiten installiert werden müssen
-if not exist node_modules (
-    echo [INFO] node_modules nicht gefunden. Installiere Abhängigkeiten (npm install)...
+echo [INFO] Node.js gefunden.
+node --version
+echo.
+
+:: 2. Abhaengigkeiten installieren falls noetig
+if not exist "node_modules" (
+    echo [INFO] node_modules nicht gefunden. Installiere Abhaengigkeiten...
     echo Dies kann beim ersten Start 1-2 Minuten dauern...
     echo.
     call npm install
-    if %errorlevel% neq 0 (
-        echo [WARNUNG] Die Installation der Abhängigkeiten meldet Fehler.
-        echo Bitte prüfen Sie Ihre Internetverbindung.
+    if !errorlevel! neq 0 (
+        echo.
+        echo [FEHLER] npm install ist fehlgeschlagen.
+        echo Pruefen Sie Ihre Internetverbindung.
+        echo.
+        pause
+        exit /b 1
     )
 )
 
-:: 3. Webbrowser im Hintergrund aufrufen
-echo [INFO] Öffne Dashboard im Browser unter http://localhost:3000 ...
-start http://localhost:3000
+:: 3. Browser zeitverzoegert oeffnen (Server braucht einen Moment)
+echo [INFO] Oeffne Browser in 4 Sekunden unter http://localhost:3000 ...
+start "" cmd /c "timeout /t 4 /nobreak >nul && start http://localhost:3000"
 
 :: 4. Server starten
 echo [INFO] Starte Node-Server (npm run dev)...
 echo.
 echo =======================================================================
-echo   Das Dashboard ist jetzt aktiv. Lassen Sie dieses Fenster offen!
-echo   Zum Stoppen: Schließen Sie einfach dieses Fenster oder drücken Sie Strg+C
+echo   Dashboard wird gestartet. Lassen Sie dieses Fenster offen!
+echo   Zum Stoppen: Strg+C oder Fenster schliessen.
 echo =======================================================================
 echo.
 
 call npm run dev
+echo.
+echo [INFO] Server beendet.
 pause
-exit /b
+exit /b 0
 
 :TRY_PYTHON
-:: Prüfen ob python3, python oder py installiert ist
-set PY_CMD=
-where python3 >nul 2>nul
-if %errorlevel% equ 0 (
-    set PY_CMD=python3
-) else (
-    where python >nul 2>nul
-    if %errorlevel% equ 0 (
-        set PY_CMD=python
-    ) else (
-        where py >nul 2>nul
-        if %errorlevel% equ 0 (
-            set PY_CMD=py
-        )
-    )
-)
+echo [HINWEIS] Node.js nicht gefunden. Versuche Python-Fallback...
+echo.
 
-if "%PY_CMD%"=="" (
+set "PY_CMD="
+where python >nul 2>nul && set "PY_CMD=python"
+if "!PY_CMD!"=="" where python3 >nul 2>nul && set "PY_CMD=python3"
+if "!PY_CMD!"=="" where py >nul 2>nul && set "PY_CMD=py"
+
+if "!PY_CMD!"=="" (
     echo =======================================================================
-    echo [FEHLER] Weder Node.js noch Python wurden auf Ihrem PC gefunden.
+    echo [FEHLER] Weder Node.js noch Python wurden gefunden.
     echo =======================================================================
     echo.
-    echo Um das Dashboard lokal zu verwenden, installieren Sie bitte eine Option:
-    echo 1. Node.js (Empfohlen, unterstützt Echtzeit-Features): https://nodejs.org
-    echo 2. Python (Ultraleicht, dient als lokaler Web-Hoster): https://python.org
-    echo.
-    echo Alternativ können Sie versuchen, die Datei 'dist/index.html' direkt im
-    echo Browser zu öffnen. Manche Browser (z.B. Firefox) erlauben das Starten.
+    echo Optionen:
+    echo   1. Node.js installieren: https://nodejs.org
+    echo   2. Python installieren:  https://python.org
+    echo   3. Oder oeffnen Sie direkt: MiD-PCT_Dashboard_OFFLINE.html
     echo.
     pause
-    exit /b
+    exit /b 1
 )
 
-:: Wenn Python gefunden wurde, starten wir das kompilierte Produktions-Verzeichnis
-if not exist dist (
-    echo [FEHLER] Das Produktionsverzeichnis 'dist/' existiert nicht.
-    echo Das Dashboard muss mindestens einmal mit Node.js kompiliert werden,
-    echo oder dieses Paket muss vollständig entpackt werden.
+echo [INFO] Python gefunden: !PY_CMD!
+!PY_CMD! --version
+echo.
+
+if not exist "dist" (
+    echo [FEHLER] Verzeichnis 'dist' fehlt. Build wurde noch nicht erstellt.
+    echo Bitte zuerst mit Node.js bauen: npm install ^&^& npm run build
+    echo Alternativ direkt oeffnen: MiD-PCT_Dashboard_OFFLINE.html
     echo.
     pause
-    exit /b
+    exit /b 1
 )
 
-echo [INFO] Python gefunden (%PY_CMD%). Starte Dashboard im serverlosen Client-Modus...
-echo [INFO] Ändere Arbeitsverzeichnis auf 'dist/'...
+echo [INFO] Starte Python HTTP-Server auf Port 3000...
+echo [INFO] Oeffne Browser in 3 Sekunden ...
+start "" cmd /c "timeout /t 3 /nobreak >nul && start http://localhost:3000"
+
+echo.
+echo =======================================================================
+echo   Dashboard laeuft im Client-Modus via Python.
+echo   Zum Stoppen: Strg+C oder Fenster schliessen.
+echo =======================================================================
+echo.
+
 cd dist
-
-echo [INFO] Öffne Dashboard im Browser unter http://localhost:3000 ...
-start http://localhost:3000
-
+!PY_CMD! -m http.server 3000
 echo.
-echo =======================================================================
-echo   Das Dashboard läuft im serverlosen Client-Modus via Python!
-echo   Vollständige Datenspeicherung und Snapshots laufen im Webbrowser.
-echo.
-echo   Zum Stoppen: Schließen Sie dieses Fenster.
-echo =======================================================================
-echo.
-
-:: Server starten depending on python versions
-%PY_CMD% -m http.server 3000 2>nul
-if %errorlevel% neq 0 (
-    %PY_CMD% -m SimpleHTTPServer 3000
-)
-
+echo [INFO] Server beendet.
 pause
+exit /b 0
