@@ -2263,6 +2263,7 @@ export default function App() {
                 tasks={tasks}
                 achievements={displayAchievements}
                 streaks={complianceStreaks}
+                auditChain={{ valid: auditVerify.valid, checkedCount: auditVerify.checkedCount }}
                 onUpdateTask={handleUpdateTask}
                 onUpdateUseCase={handleUpdateUseCase}
                 onNavigateDetail={handleCockpitDrilldown}

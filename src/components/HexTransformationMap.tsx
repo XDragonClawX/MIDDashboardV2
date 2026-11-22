@@ -16,6 +16,7 @@ export interface HexTransformationMapProps {
   setSelectedUseCaseId?: (useCaseId: number | null) => void;
   onSelectUseCase?: (useCaseId: number) => void;
   onUpdateUseCase?: (id: number, patch: Partial<UseCase>) => void;
+  showProgress?: boolean; // Ausbau-Fortschritt (nur in Projekt-Steuerung)
 }
 
 export type HexPilotStage = 'vorbereitung' | 'pilotbetrieb' | 'abgeschlossen';
@@ -189,6 +190,7 @@ export default function HexTransformationMap({
   setSelectedUseCaseId,
   onSelectUseCase,
   onUpdateUseCase,
+  showProgress = false,
 }: HexTransformationMapProps) {
   const [previewId, setPreviewId] = useState<number>(() => usecases[0]?.id || 1);
   const [hoveredId, setHoveredId] = useState<number | null>(null);
@@ -221,6 +223,17 @@ export default function HexTransformationMap({
     }),
     [mappedTiles]
   );
+
+  // Ausbau-Fortschritt: Vorbereitung 0 %, Pilotbetrieb 50 %, abgeschlossen 100 % je Kachel
+  const buildProgress = useMemo(() => {
+    const total = mappedTiles.length;
+    const pct =
+      total === 0 ? 0 : Math.round(((counts.pilotbetrieb * 0.5 + counts.abgeschlossen) / total) * 100);
+    const next = mappedTiles
+      .filter((t) => t.stage !== 'abgeschlossen' && t.uc.deadline)
+      .sort((a, b) => a.uc.deadline.localeCompare(b.uc.deadline))[0];
+    return { total, pct, next: next ?? null };
+  }, [mappedTiles, counts]);
 
   const activePreview = useMemo(() => {
     const targetId = hoveredId ?? previewId;
@@ -282,6 +295,31 @@ export default function HexTransformationMap({
           </div>
         </div>
       </div>
+
+      {showProgress && buildProgress.total > 0 && (
+        <div className="px-5 py-3 border-b border-zinc-100 bg-zinc-50/60 space-y-1.5">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono">
+            <span className="font-bold text-zs-blau-schwarz">Ausbau-Fortschritt der Karte: {buildProgress.pct} %</span>
+            <span className="text-zinc-500">
+              {counts.abgeschlossen} fertig &middot; {counts.pilotbetrieb} im Pilot &middot; {counts.vorbereitung} in Vorbereitung
+            </span>
+          </div>
+          <div
+            className="flex w-full h-2 rounded-full overflow-hidden bg-zinc-200"
+            role="img"
+            aria-label={`${counts.abgeschlossen} von ${buildProgress.total} Kacheln abgeschlossen, ${counts.pilotbetrieb} im Pilotbetrieb`}
+          >
+            <div className="bg-[#10B981]" style={{ width: `${(counts.abgeschlossen / buildProgress.total) * 100}%` }} />
+            <div className="bg-[#00B4D8]" style={{ width: `${(counts.pilotbetrieb / buildProgress.total) * 100}%` }} />
+          </div>
+          {buildProgress.next && (
+            <p className="text-[10px] text-zinc-500">
+              Nächster Ausbauschritt: <strong>{buildProgress.next.uc.titel}</strong> (Frist{' '}
+              {new Date(buildProgress.next.uc.deadline + 'T12:00:00').toLocaleDateString('de-DE')}) &rarr; Kachel anklicken
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Main 2-column split: 2.5D Isometric Hex Map + Inspector / Quick Drilldown */}
       <div className="grid grid-cols-1 xl:grid-cols-12">

@@ -48,6 +48,9 @@ import {
   TIER_LABEL,
 } from '../../utils';
 import HexTransformationMap from '../HexTransformationMap';
+import { BossEventsPanel, WeeklyMissionsPanel } from '../MissionBoard';
+import { computeBossEvents } from '../../bossEvents';
+import { computeWeeklyMissions, todayISO } from '../../missions';
 import ExecutiveAdvisorsPanel from '../ExecutiveAdvisorsPanel';
 import ResourceSankeyPipeline from '../ResourceSankeyPipeline';
 import ChronikScrubber from '../ChronikScrubber';
@@ -107,6 +110,7 @@ interface ExecutiveCockpitProps {
   events?: EventLogItem[];
   achievements?: DisplayAchievement[]; // inkl. dauerhaft gespeicherter Freischaltungen (aus App)
   streaks?: ComplianceStreaks;
+  auditChain?: { valid: boolean; checkedCount: number };
   onUpdateTask?: (id: number, task: Partial<Task>) => void;
   onUpdateUseCase?: (id: number, uc: Partial<UseCase>) => void;
   onNavigateDetail: (page: string, filters: CockpitDrilldownFilters) => void;
@@ -128,6 +132,7 @@ export default function ExecutiveCockpit({
   events = SEED_EVENTS,
   achievements: achievementsProp,
   streaks,
+  auditChain,
   onUpdateTask,
   onUpdateUseCase,
   onNavigateDetail,
@@ -347,6 +352,36 @@ export default function ExecutiveCockpit({
     [zas, rechnungen, activeYear]
   );
 
+  const bossEvents = useMemo(
+    () =>
+      computeBossEvents({
+        kassenschluss: bossEvent,
+        zas,
+        vergaben,
+        oekoprofitCheckups,
+        rechnungen,
+        auditChain,
+        today: todayISO(),
+      }),
+    [bossEvent, zas, vergaben, oekoprofitCheckups, rechnungen, auditChain]
+  );
+
+  const weeklyMissions = useMemo(
+    () =>
+      computeWeeklyMissions({
+        today: todayISO(),
+        tasks,
+        vergaben,
+        usecases,
+        zas,
+        rechnungen,
+      }),
+    [tasks, vergaben, usecases, zas, rechnungen]
+  );
+
+  const openFromGamification = (page: string, subTab?: string) =>
+    onNavigateDetail(page, subTab ? { mittelabrufeSubTab: subTab as MittelabrufeSubTab } : {});
+
   const unlockedCount = achievements.filter((a) => a.unlocked).length;
 
   const resourcePipeline = useMemo(
@@ -514,6 +549,7 @@ export default function ExecutiveCockpit({
           onNavigateDetail('usecase', { useCaseId })
         }
         onUpdateUseCase={onUpdateUseCase}
+        showProgress={gamificationEnabled}
       />
 
       {/* 3 Kern-KPI-Karten mit direktem Drilldown */}
@@ -877,51 +913,11 @@ export default function ExecutiveCockpit({
       {gamificationEnabled && (
         <div className="space-y-6">
           <ChronikScrubber frames={chronikFrames} />
+          <WeeklyMissionsPanel state={weeklyMissions} onOpen={openFromGamification} />
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-          {/* Operation Kassenschluss 15.11. */}
-          <div className="lg:col-span-4 bg-[#041422] text-white rounded-xl p-5 flex flex-col justify-between space-y-4">
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-[11px] font-mono text-[#58B49D]">
-                <span className="inline-flex items-center gap-1.5 font-bold">
-                  <Flag className="w-3.5 h-3.5" /> Operation Kassenschluss {bossEvent.targetYear}
-                </span>
-                <span className="tabular-nums">Frist: 15.11.</span>
-              </div>
-              <div className="font-display font-bold text-lg">
-                Jahresabschluss-Fortschritt: {bossEvent.progressPct} %
-              </div>
-              <div className="w-full bg-white/10 h-2 rounded-full overflow-hidden">
-                <div
-                  className="bg-[#10B981] h-full transition-all duration-300"
-                  style={{ width: `${bossEvent.progressPct}%` }}
-                />
-              </div>
-              <div className="space-y-1.5 pt-1">
-                {bossEvent.phases.map((p) => (
-                  <div key={p.id} className="flex items-center justify-between text-[11px] text-zinc-300">
-                    <span className="truncate pr-2">{p.title}</span>
-                    <span
-                      className={`font-mono font-bold shrink-0 ${
-                        p.completed ? 'text-[#10B981]' : 'text-amber-300'
-                      }`}
-                    >
-                      {p.completed ? 'Erledigt' : 'Offen'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={() =>
-                onNavigateDetail('mittelabrufe', { mittelabrufeSubTab: 'za-rechner' })
-              }
-              className="w-full py-2 px-3 rounded-lg bg-[#58B49D] text-[#041422] font-bold text-xs hover:bg-[#4ca28b] transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
-            >
-              <span>Kassenschluss-Checkliste öffnen</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+          {/* Boss-Events: Kassenschluss, Mittelabruf-Frist, Vor-Ort-Prüfung */}
+          <div className="lg:col-span-4">
+            <BossEventsPanel events={bossEvents} onOpen={openFromGamification} />
           </div>
 
           {/* Projekt-Trophäenschrank */}
