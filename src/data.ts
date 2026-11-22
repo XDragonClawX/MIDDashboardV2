@@ -1,5 +1,8 @@
 import { PersonalEintrag, Rechnungsbeleg, Mittelabruf, Vergabe, UseCase, Partner, AuditLogItem, EventLogItem, Task } from './types';
 
+// Schlüssel der Förderjahre, wie sie in AZA_PLAN und activeYear verwendet werden.
+export type JahrKey = 'gesamt25' | '2026' | '2027' | '2028' | 'mrz29';
+
 // Unveränderliche Fördervereinbarung/Planwerte für die Jahre 2025–2029
 export const AZA_JAHRE = [
   { key: 'gesamt25', label: '2025 (Apr–Dez)', short: '2025', von: '2025-04-01', bis: '2025-12-31' },

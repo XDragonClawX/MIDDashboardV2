@@ -237,7 +237,7 @@ export default function MittelabrufePage({
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                   <XAxis dataKey="name" fontSize={10} stroke="#9CA3AF" />
                   <YAxis fontSize={9} stroke="#9CA3AF" tickFormatter={(v) => `${(v/1000).toFixed(0)}k €`} />
-                  <Tooltip formatter={(v: number) => [formatEuro(v, 2), '']} />
+                  <Tooltip formatter={(v) => [formatEuro(Number(v), 2), '']} />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
                   <Bar dataKey="Beantragt" fill="#041422" radius={[4, 4, 0, 0]} maxBarSize={30} />
                   <Bar dataKey="Eingegangen" fill="#58B49D" radius={[4, 4, 0, 0]} maxBarSize={30} />

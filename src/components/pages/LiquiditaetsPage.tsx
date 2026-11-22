@@ -203,7 +203,7 @@ export default function LiquiditaetsPage({
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                 <XAxis dataKey="name" fontSize={10} stroke="#9CA3AF" />
                 <YAxis fontSize={9} stroke="#9CA3AF" tickFormatter={(v) => `${v} €`} />
-                <Tooltip formatter={(v: number) => [formatEuro(v, 2), '']} />
+                <Tooltip formatter={(v) => [formatEuro(Number(v), 2), '']} />
                 <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
                 <Bar dataKey="Inflow" name="Einnahmen (Claims)" fill="#58B49D" radius={[3, 3, 0, 0]} maxBarSize={25} />
                 <Bar dataKey="Outflow" name="Ausgaben (Expenses)" fill="#041422" radius={[3, 3, 0, 0]} maxBarSize={25} />
@@ -220,7 +220,7 @@ export default function LiquiditaetsPage({
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
                 <XAxis dataKey="name" fontSize={10} stroke="#9CA3AF" />
                 <YAxis fontSize={9} stroke="#9CA3AF" tickFormatter={(v) => `${(v/1000).toFixed(0)}k €`} />
-                <Tooltip formatter={(v: number) => [formatEuro(v, 2), '']} />
+                <Tooltip formatter={(v) => [formatEuro(Number(v), 2), '']} />
                 <defs>
                   <linearGradient id="colorKum" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#F9FF00" stopOpacity={0.4} />

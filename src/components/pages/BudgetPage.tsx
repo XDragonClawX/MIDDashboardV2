@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { PersonalEintrag, Rechnungsbeleg, Mittelabruf, Buchung } from '../../types';
 import { formatEuro } from '../../utils';
-import { AZA_PLAN, AZA_JAHRE } from '../../data';
+import { AZA_PLAN, AZA_JAHRE, JahrKey } from '../../data';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
 
 interface BudgetPageProps {
@@ -42,7 +42,7 @@ export default function BudgetPage({
   const [bFoerd, setBFoerd] = useState(true);
 
   // Years array
-  const JKEYS = activeYear ? [activeYear] : ['gesamt25', '2026', '2027', '2028', 'mrz29'];
+  const JKEYS: JahrKey[] = activeYear ? [activeYear as JahrKey] : ['gesamt25', '2026', '2027', '2028', 'mrz29'];
   const JLABELS: { [key: string]: string } = {
     gesamt25: '2025 (Apr-Dez)', '2026': '2026', '2027': '2027', '2028': '2028', mrz29: '2029 (Jan-Mär)'
   };

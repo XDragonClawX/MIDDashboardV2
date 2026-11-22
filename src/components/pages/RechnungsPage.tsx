@@ -280,7 +280,7 @@ export default function RechnungsPage({
                     <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
                     <XAxis dataKey="name" fontSize={10} stroke="#9CA3AF" tickFormatter={(v) => v.length > 11 ? `${v.slice(0, 10)}…` : v} />
                     <YAxis fontSize={9} stroke="#9CA3AF" tickFormatter={(v) => `${v} €`} />
-                    <Tooltip formatter={(v: number) => [formatEuro(v, 2), '']} />
+                    <Tooltip formatter={(v) => [formatEuro(Number(v), 2), '']} />
                     <Bar dataKey="value" fill="#7F6DBA" radius={[4, 4, 0, 0]} maxBarSize={30} />
                   </BarChart>
                 </ResponsiveContainer>

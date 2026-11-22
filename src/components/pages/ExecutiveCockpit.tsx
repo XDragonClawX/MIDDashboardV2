@@ -644,7 +644,7 @@ export default function ExecutiveCockpit({
                         />
                       ))}
                     </Pie>
-                    <Tooltip formatter={(value: number) => [formatEuro(value, 2), 'Planbetrag']} />
+                    <Tooltip formatter={(value) => [formatEuro(Number(value), 2), 'Planbetrag']} />
                   </PieChart>
                 </ResponsiveContainer>
                 {/* Center text on donut chart */}
@@ -676,8 +676,8 @@ export default function ExecutiveCockpit({
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={quarterData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" horizontalFill={['#ffffff', '#f1f5f9']} fillOpacity={0.8} />
-                    <XAxis dataKey="name" fontSize={9} fontClassName="font-mono" stroke="#94A3B8" tickLine={false} />
-                    <YAxis fontSize={8} fontClassName="font-mono" stroke="#94A3B8" tickLine={false} axisLine={false} tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} />
+                    <XAxis dataKey="name" fontSize={9} stroke="#94A3B8" tickLine={false} />
+                    <YAxis fontSize={8} stroke="#94A3B8" tickLine={false} axisLine={false} tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} />
                     <Tooltip content={<CustomTooltip />} />
                     <Bar 
                       name="Lohnkosten IST" 
@@ -748,8 +748,8 @@ export default function ExecutiveCockpit({
                     margin={{ top: 10, right: 5, left: -20, bottom: 0 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                    <XAxis dataKey="name" fontSize={9} fontClassName="font-mono" stroke="#94A3B8" tickLine={false} />
-                    <YAxis fontSize={8} fontClassName="font-mono" stroke="#94A3B8" tickLine={false} axisLine={false} tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k €` : `${v} €`} />
+                    <XAxis dataKey="name" fontSize={9} stroke="#94A3B8" tickLine={false} />
+                    <YAxis fontSize={8} stroke="#94A3B8" tickLine={false} axisLine={false} tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k €` : `${v} €`} />
                     <Tooltip content={<CustomTooltip />} />
                     <Legend iconType="circle" wrapperStyle={{ fontSize: 9, fontFamily: 'monospace', paddingTop: 8 }} />
                     <Bar 
@@ -813,7 +813,7 @@ export default function ExecutiveCockpit({
                     <BarChart data={catChartData.slice(0, 4)} layout="vertical" margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
                       <XAxis type="number" fontSize={8} stroke="#94A3B8" tickLine={false} tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
                       <YAxis type="category" dataKey="name" stroke="#041422" fontSize={8} tickLine={false} width={60} />
-                      <Tooltip formatter={(v: number) => [formatEuro(v, 2), 'Betrag']} />
+                      <Tooltip formatter={(v) => [formatEuro(Number(v), 2), 'Betrag']} />
                       <Bar 
                         dataKey="value" 
                         fill="#BA8B68" 
