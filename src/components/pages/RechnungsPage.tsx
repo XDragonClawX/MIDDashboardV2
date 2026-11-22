@@ -1,614 +1,650 @@
-import React, { useState } from 'react';
-import { Rechnungsbeleg } from '../../types';
-import { formatEuro, formatDate, getQuarterFromMonth } from '../../utils';
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, PieChart, Pie, Cell } from 'recharts';
+import React, { useState, useMemo, useEffect } from 'react';
+import {
+  Rechnungsbeleg,
+  ProfiPositionCode,
+  Vergabe,
+  UseCase,
+  SystemSettings,
+} from '../../types';
+import { DEFAULT_SETTINGS } from '../../data';
+import {
+  formatEuro,
+  formatDate,
+  downloadCSV,
+  mapKategorieToProfiPosition,
+  getFoerderfaehigerRechnungsBetrag,
+  sumEuro,
+  splitPercent9010,
+  roundEuro,
+  PROFI_POSITIONEN,
+} from '../../utils';
+import {
+  Plus,
+  Download,
+  ArrowLeft,
+  ShieldAlert,
+  Info,
+} from 'lucide-react';
 
 interface RechnungsPageProps {
   rechnungen: Rechnungsbeleg[];
+  vergaben?: Vergabe[];
+  usecases?: UseCase[];
+  settings?: SystemSettings;
   activeYear: string | null;
   activeYearLabel: string;
-  onAddRechnung: (invoice: Omit<Rechnungsbeleg, 'id'>) => void;
-  onUpdateRechnungStatus: (id: number, newStatus: Rechnungsbeleg['status']) => void;
+  onAddRechnung: (beleg: Omit<Rechnungsbeleg, 'id'>) => { ok: boolean; error?: string } | void;
+  onUpdateRechnungStatus: (
+    id: number,
+    status: Rechnungsbeleg['status']
+  ) => { ok: boolean; error?: string } | void;
   initialCategory?: string;
-  onCategoryChange?: (category: string) => void;
+  onCategoryChange?: (cat: string) => void;
+  initialProfiPos?: ProfiPositionCode | '';
+  onProfiPosChange?: (pos: ProfiPositionCode | '') => void;
+  onBackToCockpit?: () => void;
 }
 
 export default function RechnungsPage({
   rechnungen,
+  vergaben = [],
+  usecases = [],
+  settings = DEFAULT_SETTINGS,
   activeYear,
   activeYearLabel,
   onAddRechnung,
   onUpdateRechnungStatus,
   initialCategory = 'all',
   onCategoryChange,
+  initialProfiPos = '',
+  onProfiPosChange,
+  onBackToCockpit,
 }: RechnungsPageProps) {
-  // Local states
+  const [catFilter, setCatFilter] = useState(initialCategory);
+  const [profiFilter, setProfiFilter] = useState<ProfiPositionCode | ''>(initialProfiPos);
+  const [gateError, setGateError] = useState<string | null>(null);
+
+  // Modal state
   const [showAddModal, setShowAddModal] = useState(false);
-  const [activeDropdownId, setActiveDropdownId] = useState<number | null>(null);
+  const [rNum, setRNum] = useState('');
+  const [rSteller, setRSteller] = useState('');
+  const [rDesc, setRDesc] = useState('');
+  const [rKat, setRKat] = useState('Vergabeaufträge');
+  const [rPos, setRPos] = useState<ProfiPositionCode>('0835');
+  const [rDat, setRDat] = useState(new Date().toISOString().slice(0, 10));
+  const [rZahl, setRZahl] = useState('');
+  const [rNetto, setRNetto] = useState('');
+  const [rMwstSatz, setRMwstSatz] = useState<0 | 7 | 19 | 'brutto'>(19);
+  const [rAp, setRAp] = useState('AP2 – Technologietransfer');
+  const [rFoerd, setRFoerd] = useState(true);
+  const [rVergabeId, setRVergabeId] = useState<string>('');
+  const [rUseCaseId, setRUseCaseId] = useState<string>('');
+  const [rStatus, setRStatus] = useState<Rechnungsbeleg['status']>('ENTWURF');
+  const [modalError, setModalError] = useState<string | null>(null);
 
-  // Filters state
-  const [filterKat, setFilterKat] = useState(initialCategory === 'all' ? '' : initialCategory);
-  const [filterStatus, setFilterStatus] = useState('');
-  const [filterYear, setFilterYear] = useState('');
-
-  // Sync prop filter with local state
-  React.useEffect(() => {
-    if (initialCategory !== undefined) {
-      setFilterKat(initialCategory === 'all' ? '' : initialCategory);
-    }
+  useEffect(() => {
+    setCatFilter(initialCategory);
   }, [initialCategory]);
 
-  // Form states
-  const [rSteller, setRSteller] = useState('');
-  const [rNr, setRNr] = useState('');
-  const [rDatum, setRDatum] = useState('');
-  const [rZdatum, setRZdatum] = useState('');
-  const [rNetto, setRNetto] = useState('');
-  const [rBrutto, setRBrutto] = useState('');
-  const [rKat, setRKat] = useState('Marketing');
-  const [rAp, setRAp] = useState('AP4 – Öffentlichkeitsarbeit');
-  const [rJahr, setRJahr] = useState(2025);
-  const [rQuartal, setRQuartal] = useState(4);
-  const [rFoerd, setRFoerd] = useState(true);
-  const [rStatus, setRStatus] = useState<Rechnungsbeleg['status']>('ENTWURF');
-  const [rBeschr, setRBeschr] = useState('');
+  useEffect(() => {
+    setProfiFilter(initialProfiPos);
+  }, [initialProfiPos]);
 
-  // Categories list
-  const KATEGORIEN = [
-    'Vergabeaufträge', 'Dienstreisen', 'Gegenstände <800€', 'Miete + Rechner',
-    'Marketing', 'Veranstaltungen', 'Workshops', 'Juristische Beratung',
-    'Hosting/Web', 'Öffentlichkeitsarbeit'
-  ];
+  const filtered = useMemo(() => {
+    return rechnungen.filter((r) => {
+      if (activeYear) {
+        if (activeYear === 'gesamt25' && r.foerderjahr !== 2025) return false;
+        if (activeYear === 'mrz29' && r.foerderjahr !== 2029) return false;
+        if (activeYear !== 'gesamt25' && activeYear !== 'mrz29' && String(r.foerderjahr) !== activeYear)
+          return false;
+      }
+      if (catFilter !== 'all' && r.kostenkategorie !== catFilter) return false;
+      if (profiFilter) {
+        const effPos = mapKategorieToProfiPosition(r.kostenkategorie, r.profiPosition);
+        if (effPos !== profiFilter) return false;
+      }
+      return true;
+    });
+  }, [rechnungen, activeYear, catFilter, profiFilter]);
 
-  // Auto calculate Gross Amount on the fly (19% VAT)
-  const handleNettoChange = (val: string) => {
-    setRNetto(val);
-    const n = parseFloat(val);
-    if (!isNaN(n) && n > 0) {
-      setRBrutto((n * 1.19).toFixed(2));
-    } else {
-      setRBrutto('');
-    }
-  };
+  const totalFoerderfaehig = useMemo(
+    () =>
+      sumEuro(
+        filtered.map((r) =>
+          getFoerderfaehigerRechnungsBetrag(r, settings.vorsteuerabzugsberechtigt)
+        )
+      ),
+    [filtered, settings.vorsteuerabzugsberechtigt]
+  );
 
-  const handleDatumChange = (val: string) => {
-    setRDatum(val);
-    if (val) {
-      const month = new Date(val).getMonth() + 1;
-      setRQuartal(getQuarterFromMonth(month));
-    }
-  };
+  const totalSplit = useMemo(() => splitPercent9010(totalFoerderfaehig), [totalFoerderfaehig]);
 
-  // Filtration logic
-  const filteredRechnungen = rechnungen.filter((r) => {
-    // 1. Global Year Filter (based on rechnungsdatum or project activeYear)
-    if (activeYear) {
-      const { von, bis } = (() => {
-        if (activeYear === 'gesamt25') return { von: '2025-04-01', bis: '2025-12-31' };
-        if (activeYear === 'mrz29') return { von: '2029-01-01', bis: '2029-03-31' };
-        return { von: `${activeYear}-01-01`, bis: `${activeYear}-12-31` };
-      })();
-      if (r.rechnungsdatum < von || r.rechnungsdatum > bis) return false;
-    }
+  const previewNetto = parseFloat(rNetto) || 0;
+  const previewBrutto =
+    rMwstSatz === 'brutto'
+      ? roundEuro(previewNetto)
+      : roundEuro(previewNetto * (1 + rMwstSatz / 100));
+  const previewFoerder = rFoerd
+    ? settings.vorsteuerabzugsberechtigt && rMwstSatz !== 'brutto'
+      ? roundEuro(previewNetto)
+      : previewBrutto
+    : 0;
 
-    // 2. Inter-panel Filter Selectors
-    if (filterKat && r.kostenkategorie !== filterKat) return false;
-    if (filterStatus && r.status !== filterStatus) return false;
-    if (filterYear && String(r.foerderjahr) !== filterYear) return false;
-
-    return true;
-  });
-
-  // KPI Calculations
-  const totNetto = filteredRechnungen.reduce((s, r) => s + r.betragNetto, 0);
-  const totFoerdNetto = filteredRechnungen.filter((r) => r.foerderfaehig).reduce((s, r) => s + r.betragNetto, 0);
-  const totNichtFoerdNetto = totNetto - totFoerdNetto;
-
-  const handleAddSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!rSteller.trim()) { alert('Rechnungssteller fehlt'); return; }
-    if (!rNr.trim()) { alert('Rechnungsnummer fehlt'); return; }
-    if (!rDatum) { alert('Rechnungsdatum fehlt'); return; }
-    const net = parseFloat(rNetto);
-    if (isNaN(net) || net <= 0) { alert('Netto-Betrag muss größer als 0 sein'); return; }
+    setModalError(null);
+    const yr = parseInt(rDat.slice(0, 4), 10) || 2026;
+    const month = parseInt(rDat.slice(5, 7), 10) || 1;
+    const q = Math.ceil(month / 3);
 
-    onAddRechnung({
-      rechnungsnummer: rNr.trim(),
-      rechnungssteller: rSteller.trim(),
-      leistungsbeschreibung: rBeschr.trim(),
-      rechnungsdatum: rDatum,
-      zahlungsdatum: rZdatum || null,
+    const res = onAddRechnung({
+      rechnungsnummer: rNum.trim() || `RE-${Date.now().toString().slice(-4)}`,
+      rechnungssteller: rSteller.trim() || 'Lieferant',
+      leistungsbeschreibung: rDesc.trim() || 'Sachbeleg',
+      rechnungsdatum: rDat,
+      zahlungsdatum: rZahl || null,
       kostenkategorie: rKat,
-      foerderjahr: Number(rJahr),
-      quartal: Number(rQuartal),
+      profiPosition: rPos,
+      foerderjahr: yr,
+      quartal: q,
       arbeitspaket: rAp,
-      betragNetto: net,
-      betragBrutto: parseFloat(rBrutto) || Math.round(net * 1.19 * 100) / 100,
+      betragNetto: roundEuro(previewNetto),
+      betragBrutto: previewBrutto,
+      mwstSatz: rMwstSatz,
+      foerderfaehigerBetrag: previewFoerder,
       foerderfaehig: rFoerd,
+      vergabeId: rVergabeId ? parseInt(rVergabeId, 10) : null,
+      useCaseId: rUseCaseId ? parseInt(rUseCaseId, 10) : null,
       status: rStatus,
     });
 
-    // Reset Form and Toggle Modal
-    setRSteller('');
-    setRNr('');
-    setRDatum('');
-    setRZdatum('');
-    setRNetto('');
-    setRBrutto('');
-    setRBeschr('');
+    if (res && res.ok === false) {
+      setModalError(res.error || 'Compliance-Gate: Buchung abgelehnt.');
+      return;
+    }
+
     setShowAddModal(false);
+    setRNum('');
+    setRSteller('');
+    setRDesc('');
+    setRNetto('');
+    setRZahl('');
+    setRVergabeId('');
+    setRUseCaseId('');
+    setRStatus('ENTWURF');
   };
 
-  // Chart aggregation
-  const catSums = KATEGORIEN.reduce((acc: { [key: string]: number }, cat) => {
-    acc[cat] = filteredRechnungen.filter((r) => r.kostenkategorie === cat).reduce((s, r) => s + r.betragNetto, 0);
-    return acc;
-  }, {});
+  const handleStatusChange = (id: number, nextStatus: Rechnungsbeleg['status']) => {
+    setGateError(null);
+    const res = onUpdateRechnungStatus(id, nextStatus);
+    if (res && res.ok === false) {
+      setGateError(res.error || 'Compliance-Gate: Statusänderung blockiert.');
+    }
+  };
 
-  const catData = Object.entries(catSums).map(([name, value]) => ({ name, value })).filter((d) => d.value > 0);
-
-  const statusCounts = ['ENTWURF', 'IN_PRUEFUNG', 'EINGEREICHT', 'ARCHIVIERT'].reduce((acc: { [key: string]: number }, st) => {
-    acc[st] = filteredRechnungen.filter((r) => r.status === st).length;
-    return acc;
-  }, {});
-
-  const statusData = Object.entries(statusCounts).map(([name, value]) => ({ name, value })).filter((d) => d.value > 0);
-
-  const COLORS = ['#041422', '#58B49D', '#BA8B68', '#7F6DBA', '#E8B34A', '#E87979'];
+  const uniqueCats = useMemo(
+    () => Array.from(new Set(rechnungen.map((r) => r.kostenkategorie))).filter(Boolean),
+    [rechnungen]
+  );
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
+          {onBackToCockpit && (
+            <button
+              onClick={onBackToCockpit}
+              className="text-xs font-mono text-zinc-500 hover:text-zs-blau-schwarz flex items-center gap-1 mb-1 cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Zurück zum Cockpit</span>
+            </button>
+          )}
           <h1 className="font-display text-3xl font-extrabold text-zs-blau-schwarz tracking-tight">
-            Sachkosten<span className="bg-zs-signal-gelb px-1 py-0.5 rounded">belege (Rechnungen)</span>
+            Sachbelege 0831–0843
           </h1>
           <p className="text-xs font-mono text-zinc-500 mt-1">
-            Periodenerfassung von Rechnungen &middot; {activeYearLabel} &middot; Mehrwertsteuerrechner
+            {activeYearLabel} &middot; § 15 UStG Modus:{' '}
+            <strong className="text-zs-blau-schwarz">
+              {settings.vorsteuerabzugsberechtigt
+                ? 'Vorsteuerabzugsberechtigt (Netto förderfähig)'
+                : 'Nicht vorsteuerabzugsberechtigt (Brutto förderfähig)'}
+            </strong>
           </p>
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="px-5 py-2 text-xs font-bold rounded-full bg-zs-signal-gelb text-zs-blau-schwarz hover:bg-zs-blau-schwarz hover:text-zs-signal-gelb transition-all shadow-xs self-start sm:self-auto cursor-pointer"
-        >
-          + Neue Rechnung erfassen
-        </button>
-      </div>
 
-      {/* KPI stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-xl border border-zinc-200">
-          <div className="text-[10px] font-mono text-zinc-400">BELEGE IN PERIODE</div>
-          <div className="text-2xl font-mono font-bold text-zs-blau-schwarz mt-1">
-            {filteredRechnungen.length} Sätze
-          </div>
-        </div>
-        <div className="bg-white p-5 rounded-xl border border-zinc-200">
-          <div className="text-[10px] font-mono text-zinc-400">KOSTEN NETTO GESAMT</div>
-          <div className="text-2xl font-mono font-bold text-zs-blau-schwarz mt-1">
-            {formatEuro(totNetto, 2)}
-          </div>
-        </div>
-        <div className="bg-white p-5 rounded-xl border border-zinc-200">
-          <div className="text-[10px] font-mono font-semibold tracking-wider text-emerald-600 uppercase">FÖRDERFÄHIG BRUTTO</div>
-          <div className="text-2xl font-mono font-bold text-zs-textil-gruen mt-1">
-            {formatEuro(totFoerdNetto, 2)}
-          </div>
-        </div>
-        <div className="bg-white p-5 rounded-xl border border-zinc-200 relative">
-          <div className="text-[10px] font-mono font-semibold tracking-wider text-red-600 uppercase">NICHT FÖRDERFÄHIG</div>
-          <div className="text-2xl font-mono font-bold text-red-600 mt-1">
-            {formatEuro(totNichtFoerdNetto, 2)}
-          </div>
-        </div>
-      </div>
-
-      {/* Dynamic Filter selector bar */}
-      <div className="bg-white p-4 rounded-xl border border-zinc-200/80 flex flex-wrap gap-4 items-center">
-        <span className="font-mono text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Filter:</span>
-        <select
-          value={filterKat}
-          onChange={(e) => {
-            const val = e.target.value;
-            setFilterKat(val);
-            if (onCategoryChange) {
-              onCategoryChange(val || 'all');
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <button
+            onClick={() =>
+              downloadCSV(
+                'Sachbelege_0831_0843.csv',
+                [
+                  ['Belegnr', 'Kreditor', 'Pos.', 'Kategorie', 'Jahr', 'Netto', 'Brutto', 'Förderfähig', 'Status'],
+                  ...filtered.map((r) => [
+                    r.rechnungsnummer,
+                    r.rechnungssteller,
+                    mapKategorieToProfiPosition(r.kostenkategorie, r.profiPosition),
+                    r.kostenkategorie,
+                    r.foerderjahr,
+                    r.betragNetto,
+                    r.betragBrutto,
+                    getFoerderfaehigerRechnungsBetrag(r, settings.vorsteuerabzugsberechtigt),
+                    r.status,
+                  ]),
+                ]
+              )
             }
-          }}
-          className="text-xs bg-zinc-50 border border-zinc-300 rounded-md px-2.5 py-1.5 focus:border-zs-blau-schwarz cursor-pointer font-medium"
-        >
-          <option value="">Alle Kategorien</option>
-          {KATEGORIEN.map((k) => (
-            <option key={k} value={k}>{k}</option>
-          ))}
-        </select>
-        <select
-          value={filterStatus}
-          onChange={(e) => setFilterStatus(e.target.value)}
-          className="text-xs bg-zinc-50 border border-zinc-300 rounded-md px-2.5 py-1.5 focus:border-zs-blau-schwarz cursor-pointer"
-        >
-          <option value="">Alle Status</option>
-          <option value="ENTWURF">ENTWURF</option>
-          <option value="IN_PRUEFUNG">IN PRÜFUNG</option>
-          <option value="EINGEREICHT">EINGEREICHT</option>
-          <option value="ARCHIVIERT">ARCHIVIERT</option>
-        </select>
-        <select
-          value={filterYear}
-          onChange={(e) => setFilterYear(e.target.value)}
-          className="text-xs bg-zinc-50 border border-zinc-300 rounded-md px-2.5 py-1.5 focus:border-zs-blau-schwarz cursor-pointer"
-        >
-          <option value="">Alle Förderjahre</option>
-          <option value="2025">2025</option>
-          <option value="2026">2026</option>
-          <option value="2027">2027</option>
-          <option value="2028">2028</option>
-          <option value="2029">2029</option>
-        </select>
-        {filterKat && (
-          <span className="text-xs font-mono bg-[#BA8B68]/10 text-zs-papier-braun font-black px-2.5 py-1 rounded border border-zs-papier-braun/20 animate-pulse">
-            Gebohrt: {filterKat}
-          </span>
-        )}
-        <button
-          onClick={() => {
-            setFilterKat('');
-            setFilterStatus('');
-            setFilterYear('');
-            if (onCategoryChange) {
-              onCategoryChange('all');
-            }
-          }}
-          className="text-xs font-mono text-zinc-400 hover:text-zs-blau-schwarz transition-all cursor-pointer underline decoration-dotted ml-auto"
-        >
-          Filter zurücksetzen
-        </button>
+            className="px-3.5 py-2 rounded-lg border border-zinc-200 bg-white text-xs font-semibold hover:bg-zinc-50 flex items-center gap-1.5 cursor-pointer"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>CSV</span>
+          </button>
+          <button
+            onClick={() => {
+              setModalError(null);
+              setShowAddModal(true);
+            }}
+            className="px-4 py-2 rounded-lg bg-zs-blau-schwarz text-white text-xs font-bold hover:bg-[#08243d] flex items-center gap-1.5 cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5 text-zs-signal-gelb" />
+            <span>Sachbeleg erfassen</span>
+          </button>
+        </div>
       </div>
 
-      {/* Categories chart visualizer */}
-      {filteredRechnungen.length > 0 && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white p-4 rounded-xl border border-zinc-200 md:col-span-2 shadow-xs">
-            <h3 className="text-[10px] font-mono font-bold tracking-wider text-zinc-400 uppercase mb-3">Ausgaben nach Kategorie</h3>
-            <div className="h-56">
-              {catData.length === 0 ? (
-                <div className="h-full flex items-center justify-center font-mono text-xs text-zinc-400">Keine Daten</div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={catData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" vertical={false} />
-                    <XAxis dataKey="name" fontSize={10} stroke="#9CA3AF" tickFormatter={(v) => v.length > 11 ? `${v.slice(0, 10)}…` : v} />
-                    <YAxis fontSize={9} stroke="#9CA3AF" tickFormatter={(v) => `${v} €`} />
-                    <Tooltip formatter={(v) => [formatEuro(Number(v), 2), '']} />
-                    <Bar dataKey="value" fill="#7F6DBA" radius={[4, 4, 0, 0]} maxBarSize={30} />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
+      {/* Inline Compliance-Gate Error Banner */}
+      {gateError && (
+        <div className="bg-red-50 border border-red-300 text-red-900 rounded-xl p-4 flex items-start justify-between gap-3 text-xs">
+          <div className="flex items-start gap-2.5">
+            <ShieldAlert className="w-4 h-4 text-red-700 shrink-0 mt-0.5" />
+            <div>
+              <strong>Compliance-Gate blockiert Einreichung:</strong> {gateError}
             </div>
           </div>
-
-          <div className="bg-white p-4 rounded-xl border border-zinc-200 shadow-xs">
-            <h3 className="text-[10px] font-mono font-bold tracking-wider text-zinc-400 uppercase mb-3">Statusaufteilung</h3>
-            <div className="h-56 flex flex-col justify-center items-center relative">
-              {statusData.length === 0 ? (
-                <div className="font-mono text-xs text-zinc-400">Keine Daten</div>
-              ) : (
-                <>
-                  <div className="h-[80%] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie data={statusData} innerRadius={45} outerRadius={65} paddingAngle={2} dataKey="value">
-                          {statusData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 mt-2 text-[10px] font-mono max-h-12 overflow-y-auto">
-                    {statusData.map((e, index) => (
-                      <span key={e.name} className="flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ backgroundColor: COLORS[index % COLORS.length] }}></span>
-                        {e.name} ({e.value})
-                      </span>
-                    ))}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
+          <button
+            onClick={() => setGateError(null)}
+            className="text-red-700 font-bold hover:underline cursor-pointer shrink-0"
+          >
+            Schließen
+          </button>
         </div>
       )}
 
-      {/* Expense ledger list table */}
-      <div className="bg-white rounded-2xl border border-zinc-200 shadow-xs overflow-hidden">
-        <div className="p-5 border-b border-zinc-100 flex justify-between items-center bg-zinc-50/50">
-          <span className="font-mono text-xs font-bold text-zinc-400 uppercase tracking-wider">Ergebnisliste</span>
-          <span className="text-xs text-zinc-500 font-mono-important">{filteredRechnungen.length} Zeilen</span>
+      {/* KPIs */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-white p-4 rounded-xl border border-zinc-200">
+          <div className="text-[11px] font-mono text-zinc-500 uppercase">Förderfähige Ausgaben (gefiltert)</div>
+          <div className="text-2xl font-mono font-bold text-zs-blau-schwarz tabular-nums mt-1">
+            {formatEuro(totalFoerderfaehig, 2)}
+          </div>
         </div>
+        <div className="bg-white p-4 rounded-xl border border-zinc-200">
+          <div className="text-[11px] font-mono text-zinc-500 uppercase">90 % Bundesanteil (BAFA)</div>
+          <div className="text-2xl font-mono font-bold text-[#58B49D] tabular-nums mt-1">
+            {formatEuro(totalSplit.bund90, 2)}
+          </div>
+        </div>
+        <div className="bg-white p-4 rounded-xl border border-zinc-200">
+          <div className="text-[11px] font-mono text-zinc-500 uppercase">10 % Eigenanteil (WIN.DN)</div>
+          <div className="text-2xl font-mono font-bold text-[#BA8B68] tabular-nums mt-1">
+            {formatEuro(totalSplit.eigen10, 2)}
+          </div>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap items-center gap-3">
+        <select
+          value={profiFilter}
+          onChange={(e) => {
+            const val = e.target.value as ProfiPositionCode | '';
+            setProfiFilter(val);
+            onProfiPosChange?.(val);
+          }}
+          className="px-3 py-1.5 border border-zinc-200 rounded-lg bg-white text-xs font-mono font-semibold text-zs-blau-schwarz"
+        >
+          <option value="">Alle profi-Positionen (0831–0843)</option>
+          {PROFI_POSITIONEN.filter((p) => ['0831', '0835', '0843'].includes(p.code)).map((p) => (
+            <option key={p.code} value={p.code}>
+              Pos. {p.displayCode} · {p.kurzBezeichnung}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={catFilter}
+          onChange={(e) => {
+            setCatFilter(e.target.value);
+            onCategoryChange?.(e.target.value);
+          }}
+          className="px-3 py-1.5 border border-zinc-200 rounded-lg bg-white text-xs font-semibold text-zs-blau-schwarz"
+        >
+          <option value="all">Alle Kostenkategorien</option>
+          {uniqueCats.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Tabelle */}
+      <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-left border-collapse text-xs">
             <thead>
-              <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-[10px] text-zinc-400 tracking-wider">
-                <th className="p-3 pl-5">Rechnungsnummer</th>
-                <th className="p-3">Aussteller (Komp.)</th>
-                <th className="p-3">Belegdatum</th>
-                <th className="p-3">Kategorie</th>
-                <th className="p-3 text-center">AP</th>
-                <th className="p-3 text-right">Netto €</th>
-                <th className="p-3 text-right">Brutto €</th>
-                <th className="p-3 text-center">Förderfähig</th>
-                <th className="p-3 text-center">Quartal</th>
-                <th className="p-3 text-center">Status</th>
+              <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-[10px] text-zinc-500 uppercase">
+                <th className="p-3 pl-5">Beleg / Kreditor</th>
+                <th className="p-3">Pos. / Kat.</th>
+                <th className="p-3">Datum / Zahlung</th>
+                <th className="p-3 text-right">Netto</th>
+                <th className="p-3 text-right">Brutto</th>
+                <th className="p-3 text-right">Förderfähig</th>
+                <th className="p-3 pr-5 text-center">Status</th>
               </tr>
             </thead>
-            <tbody>
-              {filteredRechnungen.length === 0 ? (
+            <tbody className="divide-y divide-zinc-100">
+              {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="p-8 text-center text-xs text-zinc-400 font-mono">
-                    Keine Rechnungsbelege mit diesen Filtereinstellungen gefunden.
+                  <td colSpan={7} className="p-8 text-center text-xs text-zinc-400 font-mono">
+                    Keine Sachbelege im aktuellen Filter gefunden.
                   </td>
                 </tr>
               ) : (
-                filteredRechnungen.map((r) => (
-                  <tr key={r.id} className="border-b border-zinc-100 hover:bg-zinc-50/50 transition-colors">
-                    <td className="p-3 pl-5 font-mono text-xs text-zs-blau-schwarz font-semibold">
-                      {r.rechnungsnummer}
-                    </td>
-                    <td className="p-3 text-xs font-semibold text-zinc-800">{r.rechnungssteller}</td>
-                    <td className="p-3 text-xs text-zinc-600">{formatDate(r.rechnungsdatum)}</td>
-                    <td className="p-3 text-xs text-zinc-600 max-w-[150px] truncate" title={r.kostenkategorie}>{r.kostenkategorie}</td>
-                    <td className="p-3 text-xs text-center font-mono font-medium text-zinc-500">{(r.arbeitspaket || '').split(' ')[0] || '–'}</td>
-                    <td className="p-3 text-xs text-right font-mono font-semibold">{formatEuro(r.betragNetto, 2)}</td>
-                    <td className="p-3 text-xs text-right font-mono text-zinc-400">{formatEuro(r.betragBrutto, 2)}</td>
-                    <td className="p-3 text-xs text-center font-bold">
-                      {r.foerderfaehig ? (
-                        <span className="text-emerald-600">✓</span>
-                      ) : (
-                        <span className="text-red-500">✗</span>
-                      )}
-                    </td>
-                    <td className="p-3 text-xs text-center font-mono">Q{r.quartal}</td>
-                    <td className="p-3 text-center text-xs relative">
-                      <button
-                        onClick={() => setActiveDropdownId(activeDropdownId === r.id ? null : r.id)}
-                        className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
-                          r.status === 'EINGEREICHT' ? 'bg-[#58B49D]/10 text-[#2a7060] border-[#58B49D]/35' :
-                          r.status === 'IN_PRUEFUNG' ? 'bg-[#7F6DBA]/10 text-[#54468f] border-[#7F6DBA]/35' :
-                          r.status === 'ARCHIVIERT' ? 'bg-zinc-100 text-zinc-600 border-zinc-200' :
-                          'bg-amber-100 text-amber-700 border-amber-200'
-                        }`}
-                      >
-                        {r.status} &nbsp;▾
-                      </button>
-
-                      {/* Dropdown overlay */}
-                      {activeDropdownId === r.id && (
-                        <>
-                          <div className="fixed inset-0 z-10" onClick={() => setActiveDropdownId(null)}></div>
-                          <div className="absolute right-1/2 translate-x-1/2 mt-1 w-32 bg-white rounded-lg border border-zinc-200 shadow-lg z-20 overflow-hidden font-mono text-xs text-left">
-                            {(['ENTWURF', 'IN_PRUEFUNG', 'EINGEREICHT', 'ARCHIVIERT'] as Rechnungsbeleg['status'][]).map((status) => (
-                              <button
-                                key={status}
-                                onClick={() => {
-                                  onUpdateRechnungStatus(r.id, status);
-                                  setActiveDropdownId(null);
-                                }}
-                                className="w-full text-left px-3 py-2 hover:bg-zs-signal-gelb/30 transition-all cursor-pointer"
-                              >
-                                {status}
-                              </button>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))
+                filtered.map((r) => {
+                  const pos = mapKategorieToProfiPosition(r.kostenkategorie, r.profiPosition);
+                  const ff = getFoerderfaehigerRechnungsBetrag(r, settings.vorsteuerabzugsberechtigt);
+                  const linkedVergabe = r.vergabeId
+                    ? vergaben.find((v) => v.id === r.vergabeId)
+                    : null;
+                  const linkedUc = r.useCaseId
+                    ? usecases.find((u) => u.id === r.useCaseId)
+                    : null;
+                  return (
+                    <tr key={r.id} className="hover:bg-zinc-50/70">
+                      <td className="p-3 pl-5">
+                        <div className="font-bold text-zs-blau-schwarz">
+                          {r.rechnungsnummer} &middot; {r.rechnungssteller}
+                        </div>
+                        <div className="text-[11px] text-zinc-500">{r.leistungsbeschreibung}</div>
+                        <div className="flex flex-wrap gap-1.5 mt-1">
+                          {linkedVergabe && (
+                            <span
+                              className={`text-[10px] font-mono px-1.5 py-0.5 rounded font-semibold ${
+                                linkedVergabe.bafaFreigabe
+                                  ? 'bg-emerald-50 text-emerald-700'
+                                  : 'bg-red-50 text-red-700'
+                              }`}
+                            >
+                              Vergabe: {linkedVergabe.titel} (
+                              {linkedVergabe.bafaFreigabe ? 'BAFA OK' : 'BAFA fehlt'})
+                            </span>
+                          )}
+                          {linkedUc && (
+                            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-100 text-zinc-700">
+                              Use-Case: {linkedUc.unternehmen}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <span className="px-1.5 py-0.5 rounded bg-zinc-100 font-mono font-bold text-zs-blau-schwarz text-[11px]">
+                          {pos}
+                        </span>
+                        <div className="text-[11px] text-zinc-500 mt-0.5">{r.kostenkategorie}</div>
+                      </td>
+                      <td className="p-3 font-mono text-zinc-600 text-[11px] tabular-nums">
+                        <div>Re: {formatDate(r.rechnungsdatum)}</div>
+                        <div>Za: {r.zahlungsdatum ? formatDate(r.zahlungsdatum) : 'offen'}</div>
+                      </td>
+                      <td className="p-3 text-right font-mono tabular-nums text-zinc-600">
+                        {formatEuro(r.betragNetto, 2)}
+                      </td>
+                      <td className="p-3 text-right font-mono tabular-nums text-zinc-600">
+                        {formatEuro(r.betragBrutto, 2)}
+                      </td>
+                      <td className="p-3 text-right font-mono font-bold tabular-nums text-zs-blau-schwarz">
+                        {r.foerderfaehig ? formatEuro(ff, 2) : '0,00 € (n.f.)'}
+                      </td>
+                      <td className="p-3 pr-5 text-center">
+                        <select
+                          value={r.status}
+                          onChange={(e) =>
+                            handleStatusChange(r.id, e.target.value as Rechnungsbeleg['status'])
+                          }
+                          className="px-2 py-1 border border-zinc-200 rounded text-xs font-mono bg-white cursor-pointer"
+                        >
+                          <option value="ENTWURF">ENTWURF</option>
+                          <option value="IN_PRUEFUNG">IN_PRUEFUNG</option>
+                          <option value="EINGEREICHT">EINGEREICHT</option>
+                          <option value="ARCHIVIERT">ARCHIVIERT</option>
+                        </select>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* ── MODAL: SAVE ACCOUNTING INVOICE ── */}
+      {/* Modal: Sachbeleg erfassen */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-zs-blau-schwarz/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl border border-zinc-200 shadow-2xl max-w-xl w-full overflow-hidden animate-fade-in">
-            <div className="p-5 border-b border-zinc-100 flex justify-between items-center bg-zinc-50/30">
-              <h3 className="font-display font-bold text-lg text-zs-blau-schwarz">Rechnungsbeleg erfassen</h3>
-              <button onClick={() => setShowAddModal(false)} className="text-zinc-400 hover:text-zs-blau-schwarz transition-all text-xl font-bold cursor-pointer">✕</button>
+        <div
+          className="fixed inset-0 bg-[#041422]/60 backdrop-blur-xs flex items-center justify-center z-50 p-4"
+          onClick={() => setShowAddModal(false)}
+        >
+          <form
+            onSubmit={handleSubmit}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl border border-zinc-200 max-w-2xl w-full p-6 space-y-4 shadow-2xl max-h-[90vh] overflow-y-auto"
+          >
+            <h3 className="font-display font-bold text-lg text-zs-blau-schwarz">
+              Neuen Sachbeleg erfassen (0831–0843)
+            </h3>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Rechnungsnummer</label>
+                <input
+                  type="text"
+                  required
+                  value={rNum}
+                  onChange={(e) => setRNum(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Kreditor / Aussteller</label>
+                <input
+                  type="text"
+                  required
+                  value={rSteller}
+                  onChange={(e) => setRSteller(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Leistungsbeschreibung</label>
+                <input
+                  type="text"
+                  required
+                  value={rDesc}
+                  onChange={(e) => setRDesc(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">profi-Position</label>
+                <select
+                  value={rPos}
+                  onChange={(e) => setRPos(e.target.value as ProfiPositionCode)}
+                  className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg bg-white font-mono"
+                >
+                  <option value="0831">0831 · Dienstreisen</option>
+                  <option value="0835">0835 · Vergabe / Fremdleistung</option>
+                  <option value="0843">0843 · Sächl. Verwaltungsausgaben</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Kategorie</label>
+                <input
+                  type="text"
+                  value={rKat}
+                  onChange={(e) => setRKat(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Rechnungsdatum</label>
+                <input
+                  type="date"
+                  value={rDat}
+                  onChange={(e) => setRDat(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Zahlungsdatum (optional)</label>
+                <input
+                  type="date"
+                  value={rZahl}
+                  onChange={(e) => setRZahl(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">
+                  Basisbetrag (€ {rMwstSatz === 'brutto' ? 'Brutto' : 'Netto'})
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  value={rNetto}
+                  onChange={(e) => setRNetto(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg font-mono font-bold"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Steuersatz (§ 15 UStG)</label>
+                <select
+                  value={String(rMwstSatz)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setRMwstSatz(v === 'brutto' ? 'brutto' : (parseInt(v, 10) as 0 | 7 | 19));
+                  }}
+                  className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg bg-white font-mono"
+                >
+                  <option value="19">19 % USt (Regelsatz)</option>
+                  <option value="7">7 % USt (ermäßigt)</option>
+                  <option value="0">0 % (steuerfrei / § 13b)</option>
+                  <option value="brutto">Brutto = Förderfähig</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">
+                  Verknüpfte Vergabe (Compliance-Gate)
+                </label>
+                <select
+                  value={rVergabeId}
+                  onChange={(e) => setRVergabeId(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg bg-white"
+                >
+                  <option value="">– Keine Vergabe verknüpft –</option>
+                  {vergaben.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.titel} ({v.bafaFreigabe ? 'BAFA OK' : 'BAFA fehlt!'})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">
+                  Verknüpfter Use-Case (optional)
+                </label>
+                <select
+                  value={rUseCaseId}
+                  onChange={(e) => setRUseCaseId(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg bg-white"
+                >
+                  <option value="">– Kein Use-Case –</option>
+                  {usecases.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.titel} ({u.unternehmen})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Arbeitspaket</label>
+                <input
+                  type="text"
+                  value={rAp}
+                  onChange={(e) => setRAp(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Status</label>
+                <select
+                  value={rStatus}
+                  onChange={(e) => setRStatus(e.target.value as Rechnungsbeleg['status'])}
+                  className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg bg-white font-mono"
+                >
+                  <option value="ENTWURF">ENTWURF</option>
+                  <option value="IN_PRUEFUNG">IN_PRUEFUNG</option>
+                  <option value="EINGEREICHT">EINGEREICHT</option>
+                </select>
+              </div>
             </div>
-            <form onSubmit={handleAddSubmit}>
-              <div className="p-6 space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Rechnungssteller <span className="text-red-500">*</span></label>
-                    <input
-                      type="text"
-                      placeholder="z.B. Skopos Nova GmbH"
-                      value={rSteller}
-                      onChange={(e) => setRSteller(e.target.value)}
-                      className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz bg-white"
-                      required
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Rechnungsnummer <span className="text-red-500">*</span></label>
-                    <input
-                      type="text"
-                      placeholder="z.B. RE-2025-4519"
-                      value={rNr}
-                      onChange={(e) => setRNr(e.target.value)}
-                      className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz bg-white"
-                      required
-                    />
-                  </div>
-                </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Rechnungsdatum <span className="text-red-500">*</span></label>
-                    <input
-                      type="date"
-                      value={rDatum}
-                      onChange={(e) => handleDatumChange(e.target.value)}
-                      className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz bg-white"
-                      required
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Zahlungsdatum</label>
-                    <input
-                      type="date"
-                      value={rZdatum}
-                      onChange={(e) => setRZdatum(e.target.value)}
-                      className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz bg-white"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Betrag Netto (€) <span className="text-red-500">*</span></label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={rNetto}
-                      onChange={(e) => handleNettoChange(e.target.value)}
-                      className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz bg-white"
-                      required
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Betrag Brutto (€) (Incl. VAT 19%)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="Satzrechner..."
-                      value={rBrutto}
-                      onChange={(e) => setRBrutto(e.target.value)}
-                      className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz bg-white font-medium text-zinc-700"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Kostenkategorie</label>
-                    <select
-                      value={rKat}
-                      onChange={(e) => setRKat(e.target.value)}
-                      className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz bg-white"
-                    >
-                      {KATEGORIEN.map((cat) => (
-                        <option key={cat} value={cat}>{cat}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Arbeitspaket (AP)</label>
-                    <select
-                      value={rAp}
-                      onChange={(e) => setRAp(e.target.value)}
-                      className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz bg-white"
-                    >
-                      <option>AP1 – Projektmanagement</option>
-                      <option>AP2 – Technologietransfer</option>
-                      <option>AP3 – Netzwerk</option>
-                      <option>AP4 – Öffentlichkeitsarbeit</option>
-                      <option>AP5 – Use-Cases</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Förderjahr</label>
-                    <select
-                      value={rJahr}
-                      onChange={(e) => setRJahr(Number(e.target.value))}
-                      className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz"
-                    >
-                      <option value="2025">2025 (BAFA-I)</option>
-                      <option value="2026">2026</option>
-                      <option value="2027">2027</option>
-                      <option value="2028">2028</option>
-                      <option value="2029">2029</option>
-                    </select>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Abrufquartal</label>
-                    <select
-                      value={rQuartal}
-                      onChange={(e) => setRQuartal(Number(e.target.value))}
-                      className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz"
-                    >
-                      <option value="1">Q1 (Jan–Mär)</option>
-                      <option value="2">Q2 (Apr–Jun)</option>
-                      <option value="3">Q3 (Jul–Sep)</option>
-                      <option value="4">Q4 (Okt–Dez)</option>
-                    </select>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Belegstatus</label>
-                    <select
-                      value={rStatus}
-                      onChange={(e) => setRStatus(e.target.value as Rechnungsbeleg['status'])}
-                      className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz"
-                    >
-                      <option value="ENTWURF">ENTWURF</option>
-                      <option value="IN_PRUEFUNG">IN PRÜFUNG</option>
-                      <option value="EINGEREICHT">EINGEREICHT</option>
-                      <option value="ARCHIVIERT">ARCHIVIERT</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Leistungsbeschreibung / Projektbezug</label>
-                  <textarea
-                    rows={2}
-                    placeholder="Wofür wurden die Sach- oder Dienstleistungskosten aufgewendet?"
-                    value={rBeschr}
-                    onChange={(e) => setRBeschr(e.target.value)}
-                    className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz bg-white"
-                  />
-                </div>
-
-                <div className="flex items-center gap-2 py-1.5 px-2 bg-zinc-50 rounded-lg border border-zinc-150">
-                  <input
-                    type="checkbox"
-                    id="foerd-chk"
-                    checked={rFoerd}
-                    onChange={(e) => setRFoerd(e.target.checked)}
-                    className="w-4 h-4 accent-zs-blau-schwarz cursor-pointer"
-                  />
-                  <label htmlFor="foerd-chk" className="text-xs font-semibold text-zs-blau-schwarz cursor-pointer select-none">
-                    Diese Rechnung ist vollständig förderfähig im Rahmen der AZA-Bestimmungen
-                  </label>
-                </div>
+            <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="r-foerd"
+                  checked={rFoerd}
+                  onChange={(e) => setRFoerd(e.target.checked)}
+                  className="w-4 h-4 accent-zs-blau-schwarz"
+                />
+                <label htmlFor="r-foerd" className="font-semibold text-zs-blau-schwarz cursor-pointer">
+                  Förderfähig
+                </label>
               </div>
-              <div className="p-5 border-t border-zinc-100 flex justify-end gap-2 bg-zinc-50/50">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 rounded-full border border-zinc-200 text-xs font-semibold text-zinc-500 hover:bg-zinc-100 transition-all cursor-pointer"
-                >
-                  Abbrechen
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-full bg-zs-signal-gelb text-zs-blau-schwarz font-bold text-xs hover:bg-zs-blau-schwarz hover:text-zs-signal-gelb transition-all cursor-pointer"
-                >
-                  Beleg speichern
-                </button>
+              <div className="text-zinc-600 tabular-nums">
+                Brutto: <strong>{formatEuro(previewBrutto, 2)}</strong> &middot; Förderbasis (§ 15 UStG):{' '}
+                <strong className="text-zs-blau-schwarz">{formatEuro(previewFoerder, 2)}</strong>
               </div>
-            </form>
-          </div>
+            </div>
+
+            {modalError && (
+              <div className="p-3 rounded-lg bg-red-50 border border-red-200 text-red-800 text-xs font-medium flex items-start gap-2">
+                <Info className="w-4 h-4 shrink-0 mt-0.5 text-red-700" />
+                <span>{modalError}</span>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-zinc-100">
+              <button
+                type="button"
+                onClick={() => setShowAddModal(false)}
+                className="px-4 py-2 rounded-lg border border-zinc-200 text-xs font-semibold cursor-pointer"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 rounded-lg bg-zs-signal-gelb text-zs-blau-schwarz text-xs font-bold cursor-pointer"
+              >
+                Beleg speichern
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>

@@ -1,615 +1,693 @@
-import React, { useState } from 'react';
-import { PersonalEintrag } from '../../types';
-import { formatEuro, formatDate, getQuarterFromMonth } from '../../utils';
+import React, { useState, useMemo, useEffect } from 'react';
+import { PersonalEintrag, MitarbeiterStamm, SystemSettings } from '../../types';
+import { AZA_JAHRE, DEFAULT_SETTINGS, getAzaPlan } from '../../data';
+import {
+  formatEuro,
+  downloadCSV,
+  splitPersonalToProfi,
+  anonymizeEmployeeName,
+  mulPercent,
+  subEuro,
+  addEuro,
+  sumEuro,
+  roundEuro,
+} from '../../utils';
+import {
+  Plus,
+  Download,
+  UserPlus,
+  Edit3,
+  EyeOff,
+  Users,
+} from 'lucide-react';
+
+export const TVOED_VKA_TABLE: Record<string, number[]> = {
+  'E 9b': [3509.76, 3765.81, 3934.04, 4399.83, 4778.18, 5055.34],
+  'E 9c': [3645.14, 3918.25, 4189.18, 4570.39, 4969.29, 5279.64],
+  'E 10': [3895.34, 4195.88, 4496.51, 4815.65, 5392.41, 5539.75],
+  'E 11': [4032.38, 4424.94, 4749.26, 5234.16, 5816.84, 6113.06],
+  'E 12': [4175.64, 4581.34, 5131.65, 5672.18, 6365.40, 6670.40],
+  'E 13': [4628.76, 4985.56, 5249.49, 5762.80, 6461.42, 6741.80],
+  SHK: [956.25, 956.25, 956.25, 956.25, 956.25, 956.25],
+};
 
 interface PersonalkostenPageProps {
   personal: PersonalEintrag[];
   mitarbeiterList: string[];
+  mitarbeiterStamm?: MitarbeiterStamm[];
+  settings?: SystemSettings;
+  onUpdateMitarbeiterStamm?: React.Dispatch<React.SetStateAction<MitarbeiterStamm[]>>;
   activeYear: string | null;
   activeYearLabel: string;
-  onAddEintrag: (entry: Omit<PersonalEintrag, 'id'>) => void;
-  onUpdateEintragStatus: (id: number, newStatus: PersonalEintrag['status']) => void;
-  onUpdateMitarbeiterList: (newList: string[]) => void;
+  onAddEintrag: (eintrag: Omit<PersonalEintrag, 'id'>) => void;
+  onUpdateEintragStatus: (id: number, status: PersonalEintrag['status']) => void;
+  onUpdateMitarbeiterList: (list: string[]) => void;
   onRenameMitarbeiterGlobal: (oldName: string, newName: string) => void;
   onRenameSingleMitarbeiter: (id: number, newName: string) => void;
   initialQuarter?: string;
-  onQuarterChange?: (quarter: string) => void;
+  onQuarterChange?: (q: string) => void;
+  onUpdateEintrag?: (id: number, data: Partial<PersonalEintrag>) => void;
 }
 
 export default function PersonalkostenPage({
   personal,
   mitarbeiterList,
+  mitarbeiterStamm = [],
+  settings = DEFAULT_SETTINGS,
+  onUpdateMitarbeiterStamm,
   activeYear,
   activeYearLabel,
   onAddEintrag,
   onUpdateEintragStatus,
   onUpdateMitarbeiterList,
-  onRenameMitarbeiterGlobal,
-  onRenameSingleMitarbeiter,
   initialQuarter = 'all',
   onQuarterChange,
+  onUpdateEintrag,
 }: PersonalkostenPageProps) {
-  // Local states
+  const [quarterFilter, setQuarterFilter] = useState(initialQuarter);
+  const [employeeFilter, setEmployeeFilter] = useState('all');
+  const [showStammPanel, setShowStammPanel] = useState(false);
+
+  // Add / Edit Modal
   const [showAddModal, setShowAddModal] = useState(false);
-  const [showManageNamesModal, setShowManageNamesModal] = useState(false);
-  
-  // Status dropdowns state
-  const [activeDropdownId, setActiveDropdownId] = useState<number | null>(null);
+  const [editingEntryId, setEditingEntryId] = useState<number | null>(null);
+  const [fMitarbeiter, setFMitarbeiter] = useState(mitarbeiterList[0] || '');
+  const [fMonat, setFMonat] = useState(new Date().getMonth() + 1);
+  const [fJahr, setFJahr] = useState(2026);
+  const [fAgKosten, setFAgKosten] = useState('');
+  const [fUseExactDatev, setFUseExactDatev] = useState(false);
+  const [fBrutto0812, setFBrutto0812] = useState('');
+  const [fBrutto0817, setFBrutto0817] = useState('');
+  const [fSv0820, setFSv0820] = useState('');
+  const [fBemerkung, setFBemerkung] = useState('');
 
-  // Form states to Add Entry
-  const [formMitarbeiter, setFormMitarbeiter] = useState(mitarbeiterList[0] || '');
-  const [formAgKosten, setFormAgKosten] = useState('');
-  const [formMonat, setFormMonat] = useState(1);
-  const [formJahr, setFormJahr] = useState(2025);
-  const [formBemerkung, setFormBemerkung] = useState('');
-  const [formStatus, setFormStatus] = useState<PersonalEintrag['status']>('ENTWURF');
-
-  // Form states to Manage Names
+  // Quick Add Mitarbeiter
   const [newMitarbeiterName, setNewMitarbeiterName] = useState('');
-  const [editingNameIndex, setEditingNameIndex] = useState<number | null>(null);
-  const [editingNameValue, setEditingNameValue] = useState('');
 
-  // Auto-derived variables for preview
-  const agKostenNum = parseFloat(formAgKosten) || 0;
-  const sachkostenPreview = agKostenNum * 0.10;
-  const foerderfaehigPreview = agKostenNum + sachkostenPreview;
-  const bafaPreview = foerderfaehigPreview * 0.90;
-  const lhoPreview = foerderfaehigPreview * 0.075;
+  useEffect(() => {
+    setQuarterFilter(initialQuarter);
+  }, [initialQuarter]);
 
-  // Yearly and Quarterly filtration
-  const filteredPersonal = personal.filter((p) => {
-    if (activeYear) {
-      if (activeYear === 'gesamt25' && !(p.jahr === 2025 && p.monat >= 4)) return false;
-      if (activeYear === 'mrz29' && !(p.jahr === 2029 && p.monat <= 3)) return false;
-      if (activeYear !== 'gesamt25' && activeYear !== 'mrz29' && String(p.jahr) !== String(activeYear)) return false;
-    }
-    if (initialQuarter && initialQuarter !== 'all') {
-      const qNum = parseInt(initialQuarter.replace('Q', ''));
-      if (p.quartal !== qNum) return false;
-    }
-    return true;
-  });
+  const activePlan = useMemo(() => getAzaPlan(settings.azaVersion), [settings.azaVersion]);
+  const yearKeys = useMemo(
+    () => (activeYear ? [activeYear] : AZA_JAHRE.map((y) => y.key)),
+    [activeYear]
+  );
 
-  const totAgKosten = filteredPersonal.reduce((s, p) => s + p.agKosten, 0);
-  const totFoerderbar = filteredPersonal.reduce((s, p) => s + p.foerderfaehig, 0);
-  const totBafa = filteredPersonal.reduce((s, p) => s + p.bafaAnteil, 0);
+  const filteredPersonal = useMemo(() => {
+    return personal.filter((p) => {
+      if (activeYear) {
+        if (activeYear === 'gesamt25' && p.foerderjahr !== 2025) return false;
+        if (activeYear === 'mrz29' && p.foerderjahr !== 2029) return false;
+        if (activeYear !== 'gesamt25' && activeYear !== 'mrz29' && String(p.foerderjahr) !== activeYear)
+          return false;
+      }
+      if (quarterFilter !== 'all' && String(p.quartal) !== quarterFilter) return false;
+      if (employeeFilter !== 'all' && p.mitarbeiter !== employeeFilter) return false;
+      return true;
+    });
+  }, [personal, activeYear, quarterFilter, employeeFilter]);
 
-  const MONATE = [
-    '', 'Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
-    'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'
-  ];
+  // Summen & strikte 0812 / 0817 / 0820 / 0843 Aufschlüsselung
+  const profiSplit = useMemo(
+    () => splitPersonalToProfi(filteredPersonal, 0.18, mitarbeiterStamm),
+    [filteredPersonal, mitarbeiterStamm]
+  );
 
-  // Renaming triggers
-  const handleNameClick = (p: PersonalEintrag) => {
-    const newName = prompt(`Namen für "${p.mitarbeiter}" bearbeiten:\n\nWelcher neue Name soll eingetragen werden?`, p.mitarbeiter);
-    if (!newName || newName.trim() === p.mitarbeiter) return;
-    const cleanName = newName.trim();
+  const totalFoerderfaehig = useMemo(
+    () => sumEuro(filteredPersonal.map((p) => p.foerderfaehig || 0)),
+    [filteredPersonal]
+  );
 
-    // Ask if global or single rename
-    const choice = confirm(
-      `Soll der Name "${p.mitarbeiter}" GLOBAL in allen Monaten umbenannt werden?\n\n` +
-      `OK = GLOBAL für alle Monate umbenennen\n` +
-      `Abbrechen = Nur diesen einzelnen Eintrag ändern`
-    );
+  const totalBund = useMemo(() => mulPercent(totalFoerderfaehig, 90), [totalFoerderfaehig]);
+  const totalEigen = useMemo(() => subEuro(totalFoerderfaehig, totalBund), [totalFoerderfaehig, totalBund]);
 
-    if (choice) {
-      onRenameMitarbeiterGlobal(p.mitarbeiter, cleanName);
-    } else {
-      onRenameSingleMitarbeiter(p.id, cleanName);
-    }
+  const azaPlanPersonalSum = useMemo(() => {
+    let sum = 0;
+    activePlan.personal.forEach((row) => {
+      sum = addEuro(
+        sum,
+        sumEuro(yearKeys.map((yk) => Number((row as Record<string, any>)[yk] || 0)))
+      );
+    });
+    const ov = sumEuro(yearKeys.map((yk) => Number((activePlan.overhead as Record<string, any>)[yk] || 0)));
+    return addEuro(sum, ov);
+  }, [activePlan, yearKeys]);
+
+  const openNewModal = () => {
+    setEditingEntryId(null);
+    setFMitarbeiter(mitarbeiterList[0] || 'von Styp-Rekowski');
+    setFMonat(new Date().getMonth() + 1);
+    setFJahr(2026);
+    setFAgKosten('');
+    setFUseExactDatev(false);
+    setFBrutto0812('');
+    setFBrutto0817('');
+    setFSv0820('');
+    setFBemerkung('');
+    setShowAddModal(true);
   };
 
-  const handleAddEntrySubmit = (e: React.FormEvent) => {
+  const openEditModal = (p: PersonalEintrag) => {
+    setEditingEntryId(p.id);
+    setFMitarbeiter(p.mitarbeiter);
+    setFMonat(p.monat);
+    setFJahr(p.jahr);
+    setFAgKosten(String(p.agKosten));
+    const hasExact =
+      p.brutto0812 !== undefined || p.brutto0817 !== undefined || p.sv0820 !== undefined;
+    setFUseExactDatev(hasExact);
+    setFBrutto0812(p.brutto0812 !== undefined ? String(p.brutto0812) : '');
+    setFBrutto0817(p.brutto0817 !== undefined ? String(p.brutto0817) : '');
+    setFSv0820(p.sv0820 !== undefined ? String(p.sv0820) : '');
+    setFBemerkung(p.bemerkung || '');
+    setShowAddModal(true);
+  };
+
+  const handleSubmitEintrag = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formMitarbeiter) {
-      alert('Bitte wählen Sie einen Mitarbeiter aus.');
-      return;
+    const b0812 = fUseExactDatev ? roundEuro(parseFloat(fBrutto0812) || 0) : undefined;
+    const b0817 = fUseExactDatev ? roundEuro(parseFloat(fBrutto0817) || 0) : undefined;
+    const sv20 = fUseExactDatev ? roundEuro(parseFloat(fSv0820) || 0) : undefined;
+
+    const agKosten = fUseExactDatev
+      ? sumEuro([b0812 || 0, b0817 || 0, sv20 || 0])
+      : roundEuro(parseFloat(fAgKosten) || 0);
+    if (agKosten <= 0) return;
+
+    const sachkosten = roundEuro(agKosten * 0.1);
+    const foerderfaehig = addEuro(agKosten, sachkosten);
+    const bafaAnteil = mulPercent(foerderfaehig, 90);
+    const eigenaufwand = subEuro(foerderfaehig, bafaAnteil);
+    const quartal = Math.ceil(fMonat / 3);
+
+    const payload: Omit<PersonalEintrag, 'id'> = {
+      mitarbeiter: fMitarbeiter,
+      monat: fMonat,
+      jahr: fJahr,
+      quartal,
+      agKosten,
+      sachkosten,
+      foerderfaehig,
+      bafaAnteil,
+      lhoAnteil: 0,
+      eigenaufwand,
+      foerderjahr: fJahr,
+      brutto0812: b0812,
+      brutto0817: b0817,
+      sv0820: sv20,
+      status: 'ENTWURF',
+      bemerkung: fBemerkung.trim(),
+    };
+
+    if (editingEntryId && onUpdateEintrag) {
+      onUpdateEintrag(editingEntryId, payload);
+    } else {
+      onAddEintrag(payload);
     }
-    if (agKostenNum <= 0) {
-      alert('Die Arbeitgeberkosten müssen größer als 0 sein.');
-      return;
-    }
-
-    const sk = agKostenNum * 0.10;
-    const ff = agKostenNum + sk;
-
-    onAddEintrag({
-      mitarbeiter: formMitarbeiter,
-      monat: Number(formMonat),
-      jahr: Number(formJahr),
-      quartal: getQuarterFromMonth(Number(formMonat)),
-      agKosten: agKostenNum,
-      sachkosten: sk,
-      foerderfaehig: ff,
-      bafaAnteil: ff * 0.90,
-      lhoAnteil: ff * 0.075,
-      eigenaufwand: ff * 0.025,
-      foerderjahr: Number(formJahr),
-      status: formStatus,
-      bemerkung: formBemerkung,
-    });
-
-    // Reset Form & Close
-    setFormAgKosten('');
-    setFormBemerkung('');
     setShowAddModal(false);
   };
 
-  const handleAddNewMitarbeiterName = () => {
-    const name = newMitarbeiterName.trim();
-    if (!name) return;
-    if (mitarbeiterList.includes(name)) {
-      alert('Dieser Name existiert bereits.');
-      return;
-    }
-    const updated = [...mitarbeiterList, name];
-    onUpdateMitarbeiterList(updated);
-    setFormMitarbeiter(name);
+  const handleUpdateStammField = (id: number, patch: Partial<MitarbeiterStamm>) => {
+    onUpdateMitarbeiterStamm?.((prev) =>
+      prev.map((m) => (m.id === id ? { ...m, ...patch } : m))
+    );
+  };
+
+  const handleAddNewMitarbeiter = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleaned = newMitarbeiterName.trim();
+    if (!cleaned || mitarbeiterList.includes(cleaned)) return;
+    onUpdateMitarbeiterList([...mitarbeiterList, cleaned]);
     setNewMitarbeiterName('');
   };
 
-  const handleRemoveMitarbeiterName = (name: string) => {
-    const isUsed = personal.some((p) => p.mitarbeiter === name);
-    const msg = isUsed 
-      ? `Achtung: "${name}" wird in ${personal.filter(p=>p.mitarbeiter===name).length} aktiven Personallohn-Datensätzen verwendet! Auswahlliste trotzdem anpassen? (Bestehende Datensätze bleiben erhalten)`
-      : `Möchten Sie "${name}" aus der Auswahlliste löschen?`;
-    
-    if (confirm(msg)) {
-      const updated = mitarbeiterList.filter((n) => n !== name);
-      onUpdateMitarbeiterList(updated);
-      if (formMitarbeiter === name) {
-        setFormMitarbeiter(updated[0] || '');
-      }
-    }
-  };
-
-  const handleConfirmRenameMitarbeiter = (oldName: string, newName: string) => {
-    if (!newName.trim() || newName.trim() === oldName) {
-      setEditingNameIndex(null);
-      return;
-    }
-    const clean = newName.trim();
-    // Update selection list
-    const updated = mitarbeiterList.map((n) => n === oldName ? clean : n);
-    onUpdateMitarbeiterList(updated);
-    // Rename database entries
-    onRenameMitarbeiterGlobal(oldName, clean);
-    setEditingNameIndex(null);
+  const getEmployeePosBadge = (name: string): '0812' | '0817' => {
+    const stamm = mitarbeiterStamm.find(
+      (s) => s.name.toLowerCase().trim() === name.toLowerCase().trim()
+    );
+    if (stamm) return stamm.primaerePosition;
+    const low = name.toLowerCase();
+    return low.includes('fischöder') || low.includes('fischoeder') || low.includes('shk')
+      ? '0817'
+      : '0812';
   };
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="font-display text-3xl font-extrabold text-zs-blau-schwarz tracking-tight">
-            Personal<span className="bg-zs-signal-gelb px-1 py-0.5 rounded">kosten</span>
+            Personalkosten 0812 / 0817 / 0820
           </h1>
-          <p className="text-xs font-mono text-zinc-500 mt-1">
-            AG-Lohnabrechnungen &middot; {activeYearLabel} &middot; Automatisierte 10% Sachkosten-Overheads
+          <p className="text-xs font-mono text-zinc-500 mt-1 flex flex-wrap items-center gap-2">
+            <span>Strikte profi-online Trennung + 10 % Geschäftsbedarf (0843) &middot; {activeYearLabel}</span>
+            {settings.privacyMode && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zs-blau-schwarz text-zs-signal-gelb font-bold text-[10px]">
+                <EyeOff className="w-3 h-3" />
+                Individualgehälter maskiert
+              </span>
+            )}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2.5">
+
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
           <button
-            onClick={() => setShowManageNamesModal(true)}
-            className="px-4 py-2 text-xs font-semibold rounded-full border-1.5 border-zs-blau-schwarz/20 font-mono text-zs-blau-schwarz transition-all hover:bg-zs-blau-schwarz hover:text-white cursor-pointer"
+            onClick={() => setShowStammPanel((prev) => !prev)}
+            className="px-3.5 py-2 rounded-lg border border-zinc-200 bg-white text-xs font-semibold hover:bg-zinc-50 flex items-center gap-1.5 cursor-pointer"
           >
-            ✏️ Namen verwalten
+            <Users className="w-3.5 h-3.5 text-[#58B49D]" />
+            <span>Mitarbeitenden-Stamm ({mitarbeiterStamm.length})</span>
           </button>
           <button
-            onClick={() => {
-              if (mitarbeiterList.length === 0) {
-                alert('Bitte legen Sie zuerst Mitarbeiternamen über "Namen verwalten" an.');
-                return;
-              }
-              setFormMitarbeiter(mitarbeiterList[0]);
-              setShowAddModal(true);
-            }}
-            className="px-5 py-2 text-xs font-bold rounded-full bg-zs-signal-gelb text-zs-blau-schwarz hover:bg-zs-blau-schwarz hover:text-zs-signal-gelb transition-all shadow-xs cursor-pointer"
+            onClick={() =>
+              downloadCSV(
+                'Personalkosten_0812_0817_0820.csv',
+                [
+                  ['Mitarbeiter', 'Jahr', 'Monat', 'AG-Kosten', '0843 Pauschale', 'Förderfähig', '90% Bund', '10% Eigen', 'Status'],
+                  ...filteredPersonal.map((p, idx) => [
+                    anonymizeEmployeeName(p.mitarbeiter, idx + 1, settings.privacyMode),
+                    p.jahr,
+                    p.monat,
+                    settings.privacyMode ? '***' : p.agKosten,
+                    settings.privacyMode ? '***' : p.sachkosten,
+                    settings.privacyMode ? '***' : p.foerderfaehig,
+                    settings.privacyMode ? '***' : p.bafaAnteil,
+                    settings.privacyMode ? '***' : p.eigenaufwand,
+                    p.status,
+                  ]),
+                ]
+              )
+            }
+            className="px-3.5 py-2 rounded-lg border border-zinc-200 bg-white text-xs font-semibold hover:bg-zinc-50 flex items-center gap-1.5 cursor-pointer"
           >
-            + Eintrag erfassen
+            <Download className="w-3.5 h-3.5" />
+            <span>CSV</span>
+          </button>
+          <button
+            onClick={openNewModal}
+            className="px-4 py-2 rounded-lg bg-zs-blau-schwarz text-white text-xs font-bold hover:bg-[#08243d] flex items-center gap-1.5 cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5 text-zs-signal-gelb" />
+            <span>Lohnbeleg erfassen</span>
           </button>
         </div>
       </div>
 
-      {/* Interactive Quarter Filter control bar */}
-      <div className="bg-white p-4 rounded-xl border border-zinc-200 flex flex-wrap gap-4 items-center justify-between">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs font-mono font-bold text-zinc-400 uppercase">Quartal filtern:</span>
-          <div className="flex flex-wrap gap-1">
-            {['all', 'Q1', 'Q2', 'Q3', 'Q4'].map((q) => {
-              const isSelected = initialQuarter === q;
-              return (
-                <button
-                  key={q}
-                  onClick={() => onQuarterChange && onQuarterChange(q)}
-                  className={`px-3 py-1 text-xs font-mono font-semibold rounded-full border transition-all cursor-pointer ${
-                    isSelected
-                      ? 'bg-zs-blau-schwarz text-white border-zs-blau-schwarz'
-                      : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:bg-zinc-100'
-                  }`}
-                >
-                  {q === 'all' ? 'Alle Quartale' : q}
-                </button>
-              );
-            })}
+      {/* Mitarbeitenden-Stamm Zuordnung 0812 vs 0817 */}
+      {showStammPanel && (
+        <div className="bg-white rounded-xl border border-zinc-200 p-5 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 pb-3">
+            <div>
+              <h2 className="font-display font-bold text-base text-zs-blau-schwarz">
+                Mitarbeitenden-Stamm &amp; profi-online Kontierung (0812 vs. 0817)
+              </h2>
+              <p className="text-xs text-zinc-500">
+                Steuert die exakte Aufteilung zwischen Angestellten (0812), Aushilfen/SHK (0817) und Sozialabgaben (0820).
+              </p>
+            </div>
+
+            <form onSubmit={handleAddNewMitarbeiter} className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="Neue/r Mitarbeiter/in..."
+                value={newMitarbeiterName}
+                onChange={(e) => setNewMitarbeiterName(e.target.value)}
+                className="px-3 py-1.5 border border-zinc-300 rounded-lg text-xs"
+              />
+              <button
+                type="submit"
+                className="px-3 py-1.5 rounded-lg bg-zs-blau-schwarz text-white text-xs font-bold flex items-center gap-1 cursor-pointer"
+              >
+                <UserPlus className="w-3.5 h-3.5" />
+                <span>Hinzufügen</span>
+              </button>
+            </form>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-[10px] text-zinc-500 uppercase">
+                  <th className="p-2.5 pl-4">Name / Stelle</th>
+                  <th className="p-2.5">TVöD-Einstufung</th>
+                  <th className="p-2.5">Primäre profi-Pos.</th>
+                  <th className="p-2.5 text-right">SV-Quote (%)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {mitarbeiterStamm.map((m, idx) => (
+                  <tr key={m.id} className="hover:bg-zinc-50">
+                    <td className="p-2.5 pl-4 font-semibold text-zs-blau-schwarz">
+                      {anonymizeEmployeeName(m.name, idx + 1, settings.privacyMode)}
+                      <div className="text-[11px] font-normal text-zinc-500">{m.rolle}</div>
+                    </td>
+                    <td className="p-2.5 font-mono text-zinc-600">
+                      {m.tvoedGruppe} &middot; {m.tvoedStufe}
+                    </td>
+                    <td className="p-2.5">
+                      <select
+                        value={m.primaerePosition}
+                        onChange={(e) =>
+                          handleUpdateStammField(m.id, {
+                            primaerePosition: e.target.value as '0812' | '0817',
+                          })
+                        }
+                        className="px-2 py-1 border border-zinc-300 rounded text-xs font-mono bg-white cursor-pointer"
+                      >
+                        <option value="0812">0812 (Angestellte)</option>
+                        <option value="0817">0817 (Aushilfen / SHK)</option>
+                      </select>
+                    </td>
+                    <td className="p-2.5 text-right">
+                      <input
+                        type="number"
+                        step="0.5"
+                        min="0"
+                        max="35"
+                        value={roundEuro(m.svQuote * 100)}
+                        onChange={(e) =>
+                          handleUpdateStammField(m.id, {
+                            svQuote: Math.max(0, Math.min(0.45, (parseFloat(e.target.value) || 0) / 100)),
+                          })
+                        }
+                        className="w-20 px-2 py-1 text-right border border-zinc-300 rounded font-mono text-xs tabular-nums"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
-        {initialQuarter !== 'all' && (
-          <button
-            onClick={() => onQuarterChange && onQuarterChange('all')}
-            className="text-[10px] font-mono font-bold text-[#D04C3D] hover:underline flex items-center gap-1 bg-red-50 px-2 py-1 rounded border border-red-200/50 cursor-pointer"
-          >
-            ✕ Filter aufheben
-          </button>
-        )}
+      )}
+
+      {/* 4 KPI-Karten (strikte 0812 / 0817 / 0820 / 0843 + Förderquoten) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="bg-white p-4 rounded-xl border border-zinc-200">
+          <div className="text-[10px] font-mono text-zinc-500 uppercase">Pos. 0812 (Angestellte)</div>
+          <div className="text-xl font-mono font-bold text-zs-blau-schwarz tabular-nums mt-1">
+            {formatEuro(profiSplit.pos0812, 2)}
+          </div>
+        </div>
+        <div className="bg-white p-4 rounded-xl border border-zinc-200">
+          <div className="text-[10px] font-mono text-zinc-500 uppercase">Pos. 0817 (Aushilfen/SHK)</div>
+          <div className="text-xl font-mono font-bold text-zs-blau-schwarz tabular-nums mt-1">
+            {formatEuro(profiSplit.pos0817, 2)}
+          </div>
+        </div>
+        <div className="bg-white p-4 rounded-xl border border-zinc-200">
+          <div className="text-[10px] font-mono text-zinc-500 uppercase">Pos. 0820 (Sozialabgaben)</div>
+          <div className="text-xl font-mono font-bold text-[#58B49D] tabular-nums mt-1">
+            {formatEuro(profiSplit.pos0820, 2)}
+          </div>
+        </div>
+        <div className="bg-white p-4 rounded-xl border border-zinc-200">
+          <div className="text-[10px] font-mono text-zinc-500 uppercase">Pos. 0843 (10 % Pauschale)</div>
+          <div className="text-xl font-mono font-bold text-[#BA8B68] tabular-nums mt-1">
+            {formatEuro(profiSplit.pos0843Overhead, 2)}
+          </div>
+        </div>
+        <div className="bg-white p-4 rounded-xl border border-zinc-200">
+          <div className="text-[10px] font-mono text-zinc-500 uppercase">Gesamt (90 % / 10 %) vs Plan</div>
+          <div className="text-xl font-mono font-bold text-zs-blau-schwarz tabular-nums mt-1">
+            {formatEuro(totalFoerderfaehig, 2)}
+          </div>
+          <div className="text-[10px] font-mono text-zinc-500 mt-0.5 tabular-nums">
+            Bund: {formatEuro(totalBund, 2)} | Plan: {formatEuro(azaPlanPersonalSum, 0)}
+          </div>
+        </div>
       </div>
 
-      {/* Stats row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white p-4 rounded-xl border border-zinc-200">
-          <div className="text-[10px] font-mono text-zinc-400">EINTRÄGE IN PERIODE</div>
-          <div className="text-2xl font-mono font-bold text-zs-blau-schwarz mt-1">
-            {filteredPersonal.length} Belege
-          </div>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-zinc-200">
-          <div className="text-[10px] font-mono text-zinc-400 font-semibold text-zs-papier-braun">PLAN-AG-KOSTEN GESAMT</div>
-          <div className="text-2xl font-mono font-bold text-zs-blau-schwarz mt-1">
-            {formatEuro(totAgKosten, 2)}
-          </div>
-        </div>
-        <div className="bg-white p-4 rounded-xl border border-zinc-200">
-          <div className="text-[10px] font-mono text-zinc-400 font-semibold text-emerald-600">INCL. OVERHEAD FÖRDERBAR</div>
-          <div className="text-2xl font-mono font-bold text-zs-textil-gruen mt-1">
-            {formatEuro(totFoerderbar, 2)}
-          </div>
-        </div>
+      {/* Filter Bar */}
+      <div className="flex flex-wrap items-center gap-3">
+        <select
+          value={employeeFilter}
+          onChange={(e) => setEmployeeFilter(e.target.value)}
+          className="px-3 py-1.5 border border-zinc-200 rounded-lg bg-white text-xs font-semibold text-zs-blau-schwarz"
+        >
+          <option value="all">Alle Mitarbeitenden</option>
+          {mitarbeiterList.map((m, idx) => (
+            <option key={m} value={m}>
+              {anonymizeEmployeeName(m, idx + 1, settings.privacyMode)}
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={quarterFilter}
+          onChange={(e) => {
+            setQuarterFilter(e.target.value);
+            onQuarterChange?.(e.target.value);
+          }}
+          className="px-3 py-1.5 border border-zinc-200 rounded-lg bg-white text-xs font-semibold text-zs-blau-schwarz"
+        >
+          <option value="all">Alle Quartale</option>
+          <option value="1">Q1</option>
+          <option value="2">Q2</option>
+          <option value="3">Q3</option>
+          <option value="4">Q4</option>
+        </select>
       </div>
 
-      {/* Main personal table */}
-      <div className="bg-white rounded-2xl border border-zinc-200 shadow-xs overflow-hidden">
-        <div className="p-5 border-b border-zinc-100 flex justify-between items-center bg-zinc-50/50">
-          <span className="font-mono text-xs font-bold text-zinc-400 uppercase tracking-wider">Plan &amp; Ist Lohnabrechnung</span>
-          <span className="text-xs text-zinc-500 font-mono">Scope: {filteredPersonal.length} Sätze</span>
-        </div>
+      {/* Tabelle */}
+      <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-left border-collapse text-xs">
             <thead>
-              <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-[10px] text-zinc-400 tracking-wider">
+              <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-[10px] text-zinc-500 uppercase">
                 <th className="p-3 pl-5">Mitarbeiter/in</th>
-                <th className="p-3">Monat Wh.</th>
-                <th className="p-3">Jahr</th>
-                <th className="p-3 text-center">Quartal</th>
-                <th className="p-3 text-right">AG-Basis</th>
-                <th className="p-3 text-right">Sachkosten (10%)</th>
+                <th className="p-3">Zeitraum</th>
+                <th className="p-3">profi</th>
+                <th className="p-3 text-right">AG-Kosten</th>
+                <th className="p-3 text-right">0843 (10 %)</th>
                 <th className="p-3 text-right">Förderfähig</th>
-                <th className="p-3 text-right text-zs-blau-schwarz">BAFA (90%)</th>
-                <th className="p-3 text-right text-zs-textil-gruen">LHO (7,5%)</th>
+                <th className="p-3 text-right">90 % Bund</th>
                 <th className="p-3 text-center">Status</th>
+                <th className="p-3 pr-5"></th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-zinc-100">
               {filteredPersonal.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="p-8 text-center text-xs text-zinc-400 font-mono">
-                    Keine Lohnkosten-Einträge für diesen Zeitraum gefunden.
+                  <td colSpan={9} className="p-8 text-center text-xs text-zinc-400 font-mono">
+                    Keine Lohnbelege im gewählten Filter.
                   </td>
                 </tr>
               ) : (
-                filteredPersonal.map((p) => (
-                  <tr key={p.id} className="border-b border-zinc-100 hover:bg-zinc-50/50 transition-colors">
-                    <td className="p-3 pl-5 font-semibold text-zs-blau-schwarz text-xs">
-                      <span 
-                        onClick={() => handleNameClick(p)}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-zinc-100 text-zinc-800 rounded-full text-[11px] font-medium border border-zinc-200 cursor-pointer hover:bg-zs-blau-schwarz hover:text-zs-signal-gelb hover:border-zs-blau-schwarz transition-all"
-                        title="Namen ändern (Global/Einzelfall)"
-                      >
-                        {p.mitarbeiter}
-                        <span className="text-[9px] opacity-40">&#9998;</span>
-                      </span>
-                    </td>
-                    <td className="p-3 text-xs text-zinc-600">{MONATE[p.monat]}</td>
-                    <td className="p-3 text-xs text-zinc-600">{p.jahr}</td>
-                    <td className="p-3 text-xs text-center font-mono text-zinc-500">Q{p.quartal}</td>
-                    <td className="p-3 text-xs text-right font-mono font-medium">{formatEuro(p.agKosten, 2)}</td>
-                    <td className="p-3 text-xs text-right font-mono text-zinc-400">{formatEuro(p.sachkosten, 2)}</td>
-                    <td className="p-3 text-xs text-right font-mono font-bold text-zinc-800">{formatEuro(p.foerderfaehig, 2)}</td>
-                    <td className="p-3 text-xs text-right font-mono font-bold text-zs-blau-schwarz">{formatEuro(p.bafaAnteil, 2)}</td>
-                    <td className="p-3 text-xs text-right font-mono font-bold text-zs-textil-gruen">{formatEuro(p.lhoAnteil, 2)}</td>
-                    <td className="p-3 text-center text-xs relative">
-                      <button
-                        onClick={() => setActiveDropdownId(activeDropdownId === p.id ? null : p.id)}
-                        className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
-                          p.status === 'EINGEREICHT' ? 'bg-[#58B49D]/10 text-[#2a7060] border-[#58B49D]/35' :
-                          p.status === 'IN_PRUEFUNG' ? 'bg-[#7F6DBA]/10 text-[#54468f] border-[#7F6DBA]/35' :
-                          p.status === 'ARCHIVIERT' ? 'bg-zinc-100 text-zinc-600 border-zinc-200' :
-                          'bg-amber-100 text-amber-700 border-amber-200'
-                        }`}
-                      >
-                        {p.status} &nbsp;▾
-                      </button>
-
-                      {/* Dropdown overlay */}
-                      {activeDropdownId === p.id && (
-                        <>
-                          <div className="fixed inset-0 z-10" onClick={() => setActiveDropdownId(null)}></div>
-                          <div className="absolute right-1/2 translate-x-1/2 mt-1 w-32 bg-white rounded-lg border border-zinc-200 shadow-lg z-20 overflow-hidden font-mono text-xs">
-                            {(['ENTWURF', 'IN_PRUEFUNG', 'EINGEREICHT', 'ARCHIVIERT'] as PersonalEintrag['status'][]).map((status) => (
-                              <button
-                                key={status}
-                                onClick={() => {
-                                  onUpdateEintragStatus(p.id, status);
-                                  setActiveDropdownId(null);
-                                }}
-                                className="w-full text-left px-3 py-2 hover:bg-zs-signal-gelb/30 transition-all cursor-pointer"
-                              >
-                                {status}
-                              </button>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </td>
-                  </tr>
-                ))
+                filteredPersonal.map((p, idx) => {
+                  const posCode = getEmployeePosBadge(p.mitarbeiter);
+                  const hasExactDatev =
+                    p.brutto0812 !== undefined || p.brutto0817 !== undefined || p.sv0820 !== undefined;
+                  return (
+                    <tr key={p.id} className="hover:bg-zinc-50/70">
+                      <td className="p-3 pl-5 font-semibold text-zs-blau-schwarz">
+                        <div>{anonymizeEmployeeName(p.mitarbeiter, idx + 1, settings.privacyMode)}</div>
+                        {p.bemerkung && (
+                          <div className="text-[11px] font-normal text-zinc-400">{p.bemerkung}</div>
+                        )}
+                      </td>
+                      <td className="p-3 font-mono text-zinc-600 tabular-nums">
+                        {String(p.monat).padStart(2, '0')}/{p.jahr} (Q{p.quartal})
+                      </td>
+                      <td className="p-3 font-mono text-[11px]">
+                        <span className="px-1.5 py-0.5 rounded bg-zinc-100 text-zs-blau-schwarz font-bold">
+                          {posCode}/0820
+                        </span>
+                        {hasExactDatev && (
+                          <span className="ml-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold">
+                            DATEV
+                          </span>
+                        )}
+                      </td>
+                      <td className="p-3 text-right font-mono tabular-nums">
+                        {settings.privacyMode ? '•••• €' : formatEuro(p.agKosten, 2)}
+                      </td>
+                      <td className="p-3 text-right font-mono tabular-nums text-zinc-500">
+                        {settings.privacyMode ? '•••• €' : formatEuro(p.sachkosten, 2)}
+                      </td>
+                      <td className="p-3 text-right font-mono font-bold tabular-nums text-zs-blau-schwarz">
+                        {settings.privacyMode ? '•••• €' : formatEuro(p.foerderfaehig, 2)}
+                      </td>
+                      <td className="p-3 text-right font-mono tabular-nums text-[#58B49D] font-semibold">
+                        {settings.privacyMode ? '•••• €' : formatEuro(p.bafaAnteil, 2)}
+                      </td>
+                      <td className="p-3 text-center">
+                        <select
+                          value={p.status}
+                          onChange={(e) =>
+                            onUpdateEintragStatus(p.id, e.target.value as PersonalEintrag['status'])
+                          }
+                          className="px-2 py-1 border border-zinc-200 rounded text-xs font-mono bg-white cursor-pointer"
+                        >
+                          <option value="ENTWURF">ENTWURF</option>
+                          <option value="IN_PRUEFUNG">IN_PRUEFUNG</option>
+                          <option value="EINGEREICHT">EINGEREICHT</option>
+                          <option value="ARCHIVIERT">ARCHIVIERT</option>
+                        </select>
+                      </td>
+                      <td className="p-3 pr-5 text-right">
+                        <button
+                          onClick={() => openEditModal(p)}
+                          className="p-1.5 rounded border border-zinc-200 hover:bg-zinc-100 text-zinc-600 cursor-pointer"
+                          title="Bearbeiten / DATEV-Split pflegen"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
       </div>
 
-      {/* ── MODAL: ADD PERSONAL ENTRY ── */}
+      {/* Modal: Lohnbeleg erfassen / bearbeiten inkl. DATEV-Splits */}
       {showAddModal && (
-        <div className="fixed inset-0 bg-zs-blau-schwarz/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl border border-zinc-200 shadow-2xl max-w-lg w-full overflow-hidden animate-fade-in">
-            <div className="p-5 border-b border-zinc-100 flex justify-between items-center">
-              <h3 className="font-display font-bold text-lg text-zs-blau-schwarz">Lohnkostensatz erfassen</h3>
-              <button onClick={() => setShowAddModal(false)} className="text-zinc-400 hover:text-zs-blau-schwarz transition-all text-xl font-bold cursor-pointer">✕</button>
-            </div>
-            <form onSubmit={handleAddEntrySubmit}>
-              <div className="p-6 space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Mitarbeiter/in</label>
-                    <select
-                      value={formMitarbeiter}
-                      onChange={(e) => setFormMitarbeiter(e.target.value)}
-                      className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz bg-white"
-                    >
-                      {mitarbeiterList.map((m) => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                    </select>
+        <div
+          className="fixed inset-0 bg-[#041422]/60 backdrop-blur-xs flex items-center justify-center z-50 p-4"
+          onClick={() => setShowAddModal(false)}
+        >
+          <form
+            onSubmit={handleSubmitEintrag}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl border border-zinc-200 max-w-lg w-full p-6 space-y-4 shadow-2xl"
+          >
+            <h3 className="font-display font-bold text-lg text-zs-blau-schwarz">
+              {editingEntryId ? 'Lohnbeleg bearbeiten' : 'Neuen Lohnbeleg erfassen'}
+            </h3>
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Mitarbeiter/in</label>
+                <select
+                  value={fMitarbeiter}
+                  onChange={(e) => setFMitarbeiter(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg bg-white"
+                >
+                  {mitarbeiterList.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Monat</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={12}
+                    value={fMonat}
+                    onChange={(e) => setFMonat(parseInt(e.target.value, 10) || 1)}
+                    className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Jahr</label>
+                  <input
+                    type="number"
+                    min={2025}
+                    max={2029}
+                    value={fJahr}
+                    onChange={(e) => setFJahr(parseInt(e.target.value, 10) || 2026)}
+                    className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 space-y-2.5">
+                <label className="flex items-center gap-2 font-semibold text-zs-blau-schwarz cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={fUseExactDatev}
+                    onChange={(e) => setFUseExactDatev(e.target.checked)}
+                    className="w-4 h-4 accent-zs-blau-schwarz"
+                  />
+                  <span>Exakten DATEV-Split (0812 / 0817 / 0820) angeben</span>
+                </label>
+
+                {fUseExactDatev ? (
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="text-[10px] font-mono text-zinc-500">0812 Brutto (€)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={fBrutto0812}
+                        onChange={(e) => setFBrutto0812(e.target.value)}
+                        className="mt-1 w-full px-2.5 py-1.5 border border-zinc-300 rounded font-mono bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-mono text-zinc-500">0817 SHK (€)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={fBrutto0817}
+                        onChange={(e) => setFBrutto0817(e.target.value)}
+                        className="mt-1 w-full px-2.5 py-1.5 border border-zinc-300 rounded font-mono bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-mono text-zinc-500">0820 SV/ZVK (€)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={fSv0820}
+                        onChange={(e) => setFSv0820(e.target.value)}
+                        className="mt-1 w-full px-2.5 py-1.5 border border-zinc-300 rounded font-mono bg-white"
+                      />
+                    </div>
                   </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Arbeitgeber-Kosten (€)</label>
+                ) : (
+                  <div>
+                    <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">
+                      Arbeitgeberkosten gesamt (€)
+                    </label>
                     <input
                       type="number"
                       step="0.01"
-                      placeholder="z.B. 5675.31"
-                      value={formAgKosten}
-                      onChange={(e) => setFormAgKosten(e.target.value)}
-                      className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz bg-white"
-                      required
+                      required={!fUseExactDatev}
+                      value={fAgKosten}
+                      onChange={(e) => setFAgKosten(e.target.value)}
+                      className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg font-mono font-bold bg-white"
                     />
                   </div>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Abrechnungsmonat</label>
-                    <select
-                      value={formMonat}
-                      onChange={(e) => setFormMonat(Number(e.target.value))}
-                      className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz bg-white"
-                    >
-                      {[1,2,3,4,5,6,7,8,9,10,11,12].map((m) => (
-                        <option key={m} value={m}>{MONATE[m]}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Projektjahr</label>
-                    <select
-                      value={formJahr}
-                      onChange={(e) => setFormJahr(Number(e.target.value))}
-                      className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz"
-                    >
-                      <option value="2025">2025</option>
-                      <option value="2026">2026</option>
-                      <option value="2027">2027</option>
-                      <option value="2028">2028</option>
-                      <option value="2029">2029</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Status</label>
-                  <select
-                    value={formStatus}
-                    onChange={(e) => setFormStatus(e.target.value as PersonalEintrag['status'])}
-                    className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz"
-                  >
-                    <option value="ENTWURF">ENTWURF</option>
-                    <option value="IN_PRUEFUNG">IN PRÜFUNG</option>
-                    <option value="EINGEREICHT">EINGEREICHT</option>
-                    <option value="ARCHIVIERT">ARCHIVIERT</option>
-                  </select>
-                </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Bemerkung / Begründung</label>
-                  <input
-                    type="text"
-                    value={formBemerkung}
-                    onChange={(e) => setFormBemerkung(e.target.value)}
-                    placeholder="z.B. Jahressonderzahlung"
-                    className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz"
-                  />
-                </div>
-
-                {/* Sub Calculation Preview Block */}
-                <div className="bg-zinc-50 p-4 rounded-xl border border-zinc-150/80">
-                  <span className="text-[8px] font-mono font-bold text-zinc-400 uppercase tracking-widest block mb-2">
-                    Berechnungen nach STARK-Schablone (90%/7.5%/2.5%)
-                  </span>
-                  <div className="grid grid-cols-4 gap-2 text-center text-xs">
-                    <div className="border-r border-zinc-200">
-                      <div className="text-[8px] text-zinc-400 font-mono">MÖGL. OVERHEAD (10%)</div>
-                      <div className="font-mono font-bold text-zinc-700 mt-0.5">{formatEuro(sachkostenPreview, 2)}</div>
-                    </div>
-                    <div className="border-r border-zinc-200">
-                      <div className="text-[8px] text-zinc-400 font-mono">FÖRDERFÄHIG</div>
-                      <div className="font-mono font-bold text-zinc-800 mt-0.5">{formatEuro(foerderfaehigPreview, 2)}</div>
-                    </div>
-                    <div className="border-r border-zinc-200">
-                      <div className="text-[8px] text-zs-blau-schwarz/60 font-mono">BAFA (90%)</div>
-                      <div className="font-mono font-bold text-zs-blau-schwarz mt-0.5">{formatEuro(bafaPreview, 2)}</div>
-                    </div>
-                    <div>
-                      <div className="text-[8px] text-zs-textil-gruen/80 font-mono">LHO (7,5%)</div>
-                      <div className="font-mono font-bold text-zs-textil-gruen mt-0.5">{formatEuro(lhoPreview, 2)}</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="p-5 border-t border-zinc-100 flex justify-end gap-2 bg-zinc-50/50">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 rounded-full border border-zinc-200 text-xs font-semibold text-zinc-500 hover:bg-zinc-100 transition-all cursor-pointer"
-                >
-                  Abbrechen
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-full bg-zs-signal-gelb text-zs-blau-schwarz font-bold text-xs hover:bg-zs-blau-schwarz hover:text-zs-signal-gelb transition-all cursor-pointer"
-                >
-                  Eintrag speichern
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ── MODAL: MANAGE NAMES ── */}
-      {showManageNamesModal && (
-        <div className="fixed inset-0 bg-zs-blau-schwarz/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl border border-zinc-200 shadow-2xl max-w-md w-full overflow-hidden animate-fade-in">
-            <div className="p-5 border-b border-zinc-100 flex justify-between items-center bg-zinc-50/30">
-              <h3 className="font-display font-bold text-ash-deep text-zs-blau-schwarz">Projektmitarbeiter verwalten</h3>
-              <button onClick={() => setShowManageNamesModal(false)} className="text-zinc-400 hover:text-zs-blau-schwarz transition-all text-xl font-bold cursor-pointer">✕</button>
-            </div>
-            <div className="p-6 space-y-4">
-              <p className="text-xs text-zinc-500 font-sans leading-relaxed">
-                Namen ändern wirkt sich global auf alle zugehörigen Personaleinträge aus.
-                Das Löschen entfernt den Name lediglich aus dem Dropdown, historische Lohnbelege bleiben unverändert.
-              </p>
-
-              {/* Lists of employees */}
-              <div className="space-y-2 border border-zinc-150 rounded-xl max-h-56 overflow-y-auto p-2 bg-zinc-50/50">
-                {mitarbeiterList.length === 0 ? (
-                  <div className="text-center p-4 text-xs font-mono text-zinc-400">Keine Mitarbeiter eingetragen.</div>
-                ) : (
-                  mitarbeiterList.map((m, index) => {
-                    const count = personal.filter((p) => p.mitarbeiter === m).length;
-                    return (
-                      <div key={m} className="flex justify-between items-center bg-white p-2 rounded-lg border border-zinc-100 hover:border-zinc-200 transition-all">
-                        {editingNameIndex === index ? (
-                          <input
-                            type="text"
-                            value={editingNameValue}
-                            onChange={(e) => setEditingNameValue(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') handleConfirmRenameMitarbeiter(m, editingNameValue);
-                              if (e.key === 'Escape') setEditingNameIndex(null);
-                            }}
-                            className="text-xs font-semibold px-2 py-1 border border-zs-blau-schwarz rounded-sm outline-none w-2/3"
-                            autoFocus
-                          />
-                        ) : (
-                          <div className="flex flex-col">
-                            <span className="text-xs font-semibold text-zs-blau-schwarz">{m}</span>
-                            <span className="text-[9px] font-mono text-zinc-400">{count} Belege verknüpft</span>
-                          </div>
-                        )}
-
-                        <div className="flex gap-1">
-                          {editingNameIndex === index ? (
-                            <>
-                              <button
-                                onClick={() => handleConfirmRenameMitarbeiter(m, editingNameValue)}
-                                className="px-2 py-1 bg-emerald-500 text-white rounded text-[10px] font-bold cursor-pointer"
-                              >
-                                ✓
-                              </button>
-                              <button
-                                onClick={() => setEditingNameIndex(null)}
-                                className="px-2 py-1 bg-zinc-200 text-zinc-600 rounded text-[10px] font-bold cursor-pointer"
-                              >
-                                ✕
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button
-                                onClick={() => {
-                                  setEditingNameIndex(index);
-                                  setEditingNameValue(m);
-                                }}
-                                className="px-2 py-1 rounded bg-zinc-100 hover:bg-zs-blau-schwarz hover:text-white transition-all text-[10px] font-semibold text-zinc-600 cursor-pointer"
-                              >
-                                Rumpf
-                              </button>
-                              <button
-                                onClick={() => handleRemoveMitarbeiterName(m)}
-                                className="px-1.5 py-1 text-[11px] font-semibold text-red-500 rounded hover:bg-red-50 transition-all cursor-pointer"
-                                title="Aus Liste löschen"
-                              >
-                                &#10005;
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })
                 )}
               </div>
 
-              {/* Add employee name input */}
-              <div className="pt-4 border-t border-zinc-100 flex gap-2">
+              <div>
+                <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Bemerkung</label>
                 <input
                   type="text"
-                  placeholder="Voller Name (z.B. Dr. Peter Becker)"
-                  value={newMitarbeiterName}
-                  onChange={(e) => setNewMitarbeiterName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') handleAddNewMitarbeiterName();
-                  }}
-                  className="flex-grow px-3 py-2 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz"
+                  value={fBemerkung}
+                  onChange={(e) => setFBemerkung(e.target.value)}
+                  placeholder="z. B. DATEV-Journal 08/2026"
+                  className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg"
                 />
-                <button
-                  type="button"
-                  onClick={handleAddNewMitarbeiterName}
-                  className="px-4 py-2 font-bold text-xs rounded-lg bg-zs-blau-schwarz text-zs-signal-gelb hover:opacity-95 transition-all cursor-pointer"
-                >
-                  + Add
-                </button>
               </div>
             </div>
-            <div className="p-4 border-t border-zinc-100 flex justify-end bg-zinc-50/50">
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-zinc-100">
               <button
-                onClick={() => setShowManageNamesModal(false)}
-                className="px-4 py-2 rounded-full border border-zinc-200 text-xs font-semibold text-zinc-500 hover:bg-zinc-100 transition-all cursor-pointer"
+                type="button"
+                onClick={() => setShowAddModal(false)}
+                className="px-4 py-2 rounded-lg border border-zinc-200 text-xs font-semibold cursor-pointer"
               >
-                Schließen
+                Abbrechen
+              </button>
+              <button
+                type="submit"
+                className="px-5 py-2 rounded-lg bg-zs-signal-gelb text-zs-blau-schwarz text-xs font-bold cursor-pointer"
+              >
+                Speichern
               </button>
             </div>
-          </div>
+          </form>
         </div>
       )}
     </div>

@@ -60,6 +60,7 @@ export default function AufgabenPage({
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Form inputs
   const [taskTitle, setTaskTitle] = useState('');
@@ -100,9 +101,10 @@ export default function AufgabenPage({
   const handleFormSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!taskTitle.trim()) {
-      alert('Der Aufgabentitel ist ein Pflichtfeld.');
+      setFormError('Der Aufgabentitel ist ein Pflichtfeld.');
       return;
     }
+    setFormError(null);
 
     const payload = {
       title: taskTitle.trim(),
@@ -352,7 +354,7 @@ export default function AufgabenPage({
           <div className="bg-zinc-50 border border-zinc-200 rounded-2xl p-4 flex flex-col min-h-96">
             <div className="flex justify-between items-center pb-2 border-b border-zinc-200 mb-4">
               <span className="text-xs font-mono font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-1.5">
-                <span className="w-2.5 h-2.5 rounded-full bg-zinc-350 bubble-pulse"></span> Offen
+                <span className="w-2.5 h-2.5 rounded-full bg-zinc-400"></span> Offen
               </span>
               <span className="font-mono text-xs text-zinc-450 bg-white/80 p-0.5 px-2 rounded-md border border-zinc-200 font-bold">
                 {filteredTasks.filter(t => t.status === 'offen').length}
@@ -751,20 +753,30 @@ export default function AufgabenPage({
               </div>
 
               {/* Submit / Cancel Buttons */}
-              <div className="pt-4 flex gap-2 justify-end font-mono text-xs">
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="px-4 py-2 border border-zinc-200 rounded-lg text-zinc-650 hover:bg-zinc-50 transition cursor-pointer"
-                >
-                  Abbrechen
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-lg bg-zs-signal-gelb text-zs-blau-schwarz hover:bg-zs-blau-schwarz hover:text-zs-signal-gelb font-black transition cursor-pointer"
-                >
-                  {editingId ? 'Änderungen speichern' : 'To-Do anlegen'}
-                </button>
+              <div className="pt-4 space-y-2 font-mono text-xs">
+                {formError && (
+                  <div className="p-2.5 rounded-lg bg-red-50 border border-red-200 text-red-700 text-xs font-sans font-medium">
+                    {formError}
+                  </div>
+                )}
+                <div className="flex gap-2 justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormError(null);
+                      setShowModal(false);
+                    }}
+                    className="px-4 py-2 border border-zinc-200 rounded-lg text-zinc-650 hover:bg-zinc-50 transition cursor-pointer"
+                  >
+                    Abbrechen
+                  </button>
+                  <button
+                    type="submit"
+                    className="px-5 py-2 rounded-lg bg-zs-signal-gelb text-zs-blau-schwarz hover:bg-zs-blau-schwarz hover:text-zs-signal-gelb font-black transition cursor-pointer"
+                  >
+                    {editingId ? 'Änderungen speichern' : 'To-Do anlegen'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>

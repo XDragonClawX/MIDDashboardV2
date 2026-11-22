@@ -1,982 +1,958 @@
-import React from 'react';
-import { PersonalEintrag, Rechnungsbeleg, Mittelabruf, UseCase, Vergabe, Task } from '../../types';
-import { formatEuro } from '../../utils';
-import { 
-  ResponsiveContainer, 
-  BarChart, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  Legend, 
-  PieChart, 
-  Pie, 
-  Cell,
-  LineChart,
-  Line,
-  AreaChart,
-  Area
+import React, { useMemo } from 'react';
+import {
+  PersonalEintrag,
+  Rechnungsbeleg,
+  Mittelabruf,
+  UseCase,
+  Vergabe,
+  Task,
+  Zahlungsanforderung,
+  ProfiPositionCode,
+  MitarbeiterStamm,
+  SystemSettings,
+  OekoprofitCheckup,
+  EventLogItem,
+} from '../../types';
+import {
+  AZA_JAHRE,
+  DEFAULT_SETTINGS,
+  AZA_VERSION_META,
+  SEED_EVENTS,
+  getAzaPlan,
+  splitAzaPersonalPlan0812_0817_0820,
+} from '../../data';
+import {
+  formatEuro,
+  formatDate,
+  PROFI_STARK_FKZ,
+  PROFI_POSITIONEN,
+  mapKategorieToProfiPosition,
+  splitPersonalToProfi,
+  getFoerderfaehigerRechnungsBetrag,
+  validateZaChain,
+  ZaChainValidation,
+  addEuro,
+  subEuro,
+  sumEuro,
+  mulPercent,
+  splitPercent9010,
+  evaluateProjectAchievements,
+  computeBossEventKassenschluss,
+  computeResourcePipeline,
+  computeExecutiveAdvisors,
+  computeChronikTimeline,
+} from '../../utils';
+import HexTransformationMap from '../HexTransformationMap';
+import ExecutiveAdvisorsPanel from '../ExecutiveAdvisorsPanel';
+import ResourceSankeyPipeline from '../ResourceSankeyPipeline';
+import ChronikScrubber from '../ChronikScrubber';
+import { BudgetFocus, BudgetTab } from './BudgetPage';
+import { AbrufStatusFilter, MittelabrufeSubTab } from './MittelabrufePage';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
 } from 'recharts';
-import { 
-  TrendingUp, 
-  Coins, 
-  ArrowDownCircle, 
-  Award, 
-  BookOpen, 
-  CheckSquare, 
-  FileText, 
-  AlertCircle, 
-  Calendar, 
-  ArrowRight, 
-  Activity, 
-  Check,
-  ChevronRight,
-  ChevronDown,
-  ChevronUp,
-  Sparkles,
-  PieChart as PieIcon,
-  Layers,
-  Percent,
+import {
+  CheckSquare,
+  Square,
+  ArrowRight,
+  AlertTriangle,
+  ShieldAlert,
+  Clock,
+  EyeOff,
+  Award,
   CheckCircle2,
-  ListTodo,
-  TrendingDown,
-  Lock,
-  Compass,
-  Briefcase
+  Flag,
 } from 'lucide-react';
+
+export interface CockpitDrilldownFilters {
+  personalQuarter?: string;
+  rechnungenKategorie?: string;
+  rechnungenProfiPos?: ProfiPositionCode | '';
+  mittelabrufeGeber?: string;
+  mittelabrufeSubTab?: MittelabrufeSubTab;
+  mittelabrufeStatusFilter?: AbrufStatusFilter;
+  budgetTab?: BudgetTab;
+  budgetFocus?: BudgetFocus;
+  aufgabenStatus?: string;
+  useCaseId?: number | null;
+}
 
 interface ExecutiveCockpitProps {
   personal: PersonalEintrag[];
   rechnungen: Rechnungsbeleg[];
   mittelabrufe: Mittelabruf[];
+  zas?: Zahlungsanforderung[];
   usecases: UseCase[];
   vergaben: Vergabe[];
+  oekoprofitCheckups?: OekoprofitCheckup[];
+  mitarbeiterStamm?: MitarbeiterStamm[];
+  settings?: SystemSettings;
   activeYear: string | null;
   activeYearLabel: string;
   tasks?: Task[];
+  events?: EventLogItem[];
   onUpdateTask?: (id: number, task: Partial<Task>) => void;
-  onNavigateDetail?: (page: string, filters: {
-    personalQuarter?: string;
-    rechnungenKategorie?: string;
-    mittelabrufeGeber?: string;
-    aufgabenStatus?: string;
-  }) => void;
+  onUpdateUseCase?: (id: number, uc: Partial<UseCase>) => void;
+  onNavigateDetail: (page: string, filters: CockpitDrilldownFilters) => void;
 }
 
 export default function ExecutiveCockpit({
   personal,
   rechnungen,
   mittelabrufe,
+  zas = [],
   usecases,
   vergaben,
+  oekoprofitCheckups = [],
+  mitarbeiterStamm = [],
+  settings = DEFAULT_SETTINGS,
   activeYear,
   activeYearLabel,
   tasks = [],
+  events = SEED_EVENTS,
   onUpdateTask,
+  onUpdateUseCase,
   onNavigateDetail,
 }: ExecutiveCockpitProps) {
-  
-  const [isFlowCollapsed, setIsFlowCollapsed] = React.useState(false);
+  const gamificationEnabled = settings.gamificationMode !== false;
+  const activePlan = useMemo(() => getAzaPlan(settings.azaVersion), [settings.azaVersion]);
+  const azaMeta = AZA_VERSION_META[settings.azaVersion];
 
-  // 1. Core financial metrics in scope
-  const agGesamt = personal.reduce((s, p) => s + p.agKosten, 0);
-  const sachkosten = agGesamt * 0.10;
-  const foerderfaehig = agGesamt + sachkosten;
-  const bafaAnteil = foerderfaehig * 0.90;
-  const lhoAnteil = foerderfaehig * 0.075;
-  const eigenAnteil = foerderfaehig * 0.025;
+  const yearKeys = useMemo(
+    () => (activeYear ? [activeYear] : AZA_JAHRE.map((y) => y.key)),
+    [activeYear]
+  );
 
-  const totalBafaEingegangen = mittelabrufe
-    .filter((a) => a.mittelgeber === 'BAFA_BUND')
-    .reduce((s, a) => s + (a.eingegangen || 0), 0);
-
-  const totalLhoEingegangen = mittelabrufe
-    .filter((a) => a.mittelgeber === 'LHO_LAND')
-    .reduce((s, a) => s + (a.eingegangen || 0), 0);
-
-  const totalFuerderungEingegangen = totalBafaEingegangen + totalLhoEingegangen;
-  const totalFoerderungPlanSoll = bafaAnteil + lhoAnteil;
-  const targetReachingPercentage = totalFoerderungPlanSoll > 0 
-    ? (totalFuerderungEingegangen / totalFoerderungPlanSoll) * 100 
-    : 0;
-
-  const bafaBeantragt = mittelabrufe
-    .filter((a) => a.mittelgeber === 'BAFA_BUND')
-    .reduce((s, a) => s + a.beantragt, 0);
-
-  const lhoBeantragt = mittelabrufe
-    .filter((a) => a.mittelgeber === 'LHO_LAND')
-    .reduce((s, a) => s + a.beantragt, 0);
-
-  const totalFuerderungBeantragt = bafaBeantragt + lhoBeantragt;
-
-  const activeUseCasesCount = usecases.filter((u) => u.status === 'aktiv').length;
-  const activeVergabenCount = vergaben.filter((v) => v.status !== 'abgeschlossen').length;
-
-  // Actual invoice expenses compared with the 10% allowance
-  const actualInvoicesSum = rechnungen.reduce((s, r) => s + r.betragNetto, 0);
-  const allowanceUtilizationRate = sachkosten > 0 ? (actualInvoicesSum / sachkosten) * 100 : 0;
-
-  // 2. Chart Prep
-  const quarterData = [1, 2, 3, 4].map((q) => {
-    const qPersonal = personal.filter((p) => p.quartal === q);
-    const ag = qPersonal.reduce((s, p) => s + p.agKosten, 0);
-    const ff = qPersonal.reduce((s, p) => s + p.foerderfaehig, 0);
-    return {
-      name: `Q${q}`,
-      'AG-Kosten': ag,
-      'Förderfähig': ff,
-    };
-  });
-
-  const fundData = [1, 2, 3, 4].map((q) => {
-    const bafaQ = mittelabrufe
-      .filter((a) => a.quartal === q && a.mittelgeber === 'BAFA_BUND')
-      .reduce((s, a) => s + a.beantragt, 0);
-    const lhoQ = mittelabrufe
-      .filter((a) => a.quartal === q && a.mittelgeber === 'LHO_LAND')
-      .reduce((s, a) => s + a.beantragt, 0);
-    return {
-      name: `Q${q}`,
-      'Beantragt BAFA': bafaQ,
-      'Beantragt LHO': lhoQ,
-    };
-  });
-
-  // Category breakdown for invoices
-  const invoiceCats = rechnungen.reduce((acc: { [key: string]: number }, r) => {
-    const cat = r.kostenkategorie || 'Sonstiges';
-    acc[cat] = (acc[cat] || 0) + r.betragNetto;
-    return acc;
-  }, {});
-
-  const catChartData = Object.entries(invoiceCats).map(([key, value]) => ({
-    name: key,
-    value,
-  }));
-
-  // Budget Breakdown donut data
-  const budgetSplitData = [
-    { name: 'BAFA Bund (90%)', value: bafaAnteil, color: '#041422' },
-    { name: 'LHO NRW (7.5%)', value: lhoAnteil, color: '#BA8B68' },
-    { name: 'Eigenanteil (2.5%)', value: eigenAnteil, color: '#58B49D' }
-  ].filter(item => item.value > 0);
-
-  // Task Status overview
-  const tasksCompletedCount = tasks.filter(t => t.status === 'erledigt').length;
-  const tasksOpenCount = tasks.filter(t => t.status !== 'erledigt').length;
-  const taskStatusData = [
-    { name: 'Erledigt', value: tasksCompletedCount, color: '#58B49D' },
-    { name: 'Offen', value: tasksOpenCount, color: '#D04C3D' }
-  ].filter(item => item.value > 0);
-
-  // Vergabe Status statistics
-  const vergabeStatusData = [
-    { name: 'Vorbereitung', value: vergaben.filter(v => v.status === 'Vorbereitung').length, color: '#94A3B8' },
-    { name: 'Aktiv', value: vergaben.filter(v => v.status !== 'Vorbereitung' && v.status !== 'abgeschlossen').length, color: '#BA8B68' },
-    { name: 'Beendet', value: vergaben.filter(v => v.status === 'abgeschlossen').length, color: '#041422' }
-  ].filter(item => item.value > 0);
-
-  const COLORS = ['#041422', '#BA8B68', '#58B49D', '#7F6DBA', '#E8B34A', '#D04C3D', '#467B9B', '#489B65'];
-
-  // Custom visual glassmorphic tooltip for charts
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (active && payload && payload.length) {
-      return (
-        <div className="bg-zs-blau-schwarz text-white p-3 rounded-lg border border-white/10 shadow-xl font-mono text-[11px] space-y-1">
-          <p className="font-bold border-b border-white/15 pb-1 select-none">{`Eintrag: ${label}`}</p>
-          {payload.map((entry: any) => (
-            <div key={entry.name} className="flex justify-between gap-6">
-              <span className="opacity-80" style={{ color: entry.color || entry.payload.fill || '#fff' }}>● {entry.name}:</span>
-              <span className="font-bold">{formatEuro(entry.value)}</span>
-            </div>
-          ))}
-        </div>
-      );
-    }
-    return null;
+  const scopeMatches = (foerderjahr: number) => {
+    if (!activeYear) return true;
+    if (activeYear === 'gesamt25') return foerderjahr === 2025;
+    if (activeYear === 'mrz29') return foerderjahr === 2029;
+    return String(foerderjahr) === activeYear;
   };
 
-  // Safe execution handler for task toggle
-  const handleToggleTask = (id: number, currentStatus: Task['status']) => {
-    if (onUpdateTask) {
-      const nextStatus: Task['status'] = currentStatus === 'erledigt' ? 'offen' : 'erledigt';
-      onUpdateTask(id, { status: nextStatus });
-    }
-  };
+  const yearPers = useMemo(
+    () => personal.filter((p) => scopeMatches(p.foerderjahr)),
+    [personal, activeYear]
+  );
+  const yearRech = useMemo(
+    () => rechnungen.filter((r) => scopeMatches(r.foerderjahr)),
+    [rechnungen, activeYear]
+  );
+  const yearAbr = useMemo(
+    () => mittelabrufe.filter((a) => scopeMatches(a.foerderjahr)),
+    [mittelabrufe, activeYear]
+  );
+
+  // Zentrale Planwerte aus gewählter AZA-Planversion (90% Bund / 10% Eigenanteil)
+  const planGesamt = useMemo(
+    () =>
+      sumEuro(
+        yearKeys.map(
+          (yk) => (activePlan.foerder as Record<string, { gesamt: number }>)[yk]?.gesamt || 0
+        )
+      ),
+    [activePlan, yearKeys]
+  );
+  const planSplit = useMemo(() => splitPercent9010(planGesamt), [planGesamt]);
+
+  // Kumulierte Ist-Werte aus Personal + Sachbelegen (§ 15 UStG berücksichtigt)
+  const persTotals = useMemo(
+    () => splitPersonalToProfi(yearPers, 0.18, mitarbeiterStamm),
+    [yearPers, mitarbeiterStamm]
+  );
+
+  const sachByPos = useMemo(() => {
+    const sums: Record<ProfiPositionCode, number> = {
+      '0812': 0,
+      '0817': 0,
+      '0820': 0,
+      '0831': 0,
+      '0835': 0,
+      '0843': 0,
+    };
+    yearRech.forEach((r) => {
+      const ff = getFoerderfaehigerRechnungsBetrag(r, settings.vorsteuerabzugsberechtigt);
+      if (ff <= 0) return;
+      const pos = mapKategorieToProfiPosition(r.kostenkategorie, r.profiPosition);
+      sums[pos] = addEuro(sums[pos], ff);
+    });
+    return sums;
+  }, [yearRech, settings.vorsteuerabzugsberechtigt]);
+
+  const posIst: Record<ProfiPositionCode, number> = useMemo(
+    () => ({
+      '0812': persTotals.pos0812,
+      '0817': persTotals.pos0817,
+      '0820': persTotals.pos0820,
+      '0831': sachByPos['0831'],
+      '0835': sachByPos['0835'],
+      '0843': addEuro(persTotals.pos0843Overhead, sachByPos['0843']),
+    }),
+    [persTotals, sachByPos]
+  );
+
+  const istGesamt = useMemo(() => sumEuro(Object.values(posIst)), [posIst]);
+  const istSplit = useMemo(() => splitPercent9010(istGesamt), [istGesamt]);
+
+  // Bundesmittel-Saldo & Eigenanteil
+  const bafaRest = subEuro(planSplit.bund90, istSplit.bund90);
+  const bafaQuotePct = planSplit.bund90 > 0 ? Math.min(100, (istSplit.bund90 / planSplit.bund90) * 100) : 0;
+  const eigenQuotePct = planSplit.eigen10 > 0 ? Math.min(100, (istSplit.eigen10 / planSplit.eigen10) * 100) : 0;
+
+  // Offene Mittelabrufe & profi-online ZAs
+  const abrufBeantragt = useMemo(() => sumEuro(yearAbr.map((a) => a.beantragt || 0)), [yearAbr]);
+  const abrufEingegangen = useMemo(() => sumEuro(yearAbr.map((a) => a.eingegangen || 0)), [yearAbr]);
+  const offeneForderungen = Math.max(0, subEuro(abrufBeantragt, abrufEingegangen));
+
+  const sortedZas = useMemo(
+    () => [...zas].sort((a, b) => a.datum.localeCompare(b.datum) || a.id - b.id),
+    [zas]
+  );
+  const latestZa = sortedZas[sortedZas.length - 1] || null;
+  const zaValidationMap = useMemo<Record<number, ZaChainValidation>>(
+    () => validateZaChain(zas),
+    [zas]
+  );
+
+  // ANBest-P 2-Monats-Verwendungsfrist-Alert
+  const kassenbestandAlerts = useMemo<ZaChainValidation[]>(() => {
+    return (Object.values(zaValidationMap) as ZaChainValidation[]).filter(
+      (v) => v.hasPositiveKassenbestand
+    );
+  }, [zaValidationMap]);
+
+  const chainErrors = useMemo<ZaChainValidation[]>(() => {
+    return (Object.values(zaValidationMap) as ZaChainValidation[]).filter(
+      (v) => !v.isChainValid
+    );
+  }, [zaValidationMap]);
+
+  // Planwerte je profi-online Position (0812–0843)
+  const posPlan: Record<ProfiPositionCode, number> = useMemo(() => {
+    const persPlanSplit = splitAzaPersonalPlan0812_0817_0820(activePlan, yearKeys);
+    const sumRow = (row: Record<string, any>) =>
+      sumEuro(yearKeys.map((yk) => Number(row?.[yk] || 0)));
+
+    const overhead = sumRow(activePlan.overhead);
+    const miete = sumRow(activePlan.miete);
+    const gegenst = sumRow(activePlan.gegenst);
+    const reisen = sumRow(activePlan.reisen);
+    let auftr0835 = 0;
+    let auftr0843 = 0;
+    activePlan.auftraege.forEach((a) => {
+      const v = sumRow(a);
+      if (a.kat.includes('0843')) {
+        auftr0843 = addEuro(auftr0843, v);
+      } else {
+        auftr0835 = addEuro(auftr0835, v);
+      }
+    });
+
+    return {
+      '0812': persPlanSplit.pos0812,
+      '0817': persPlanSplit.pos0817,
+      '0820': persPlanSplit.pos0820,
+      '0831': reisen,
+      '0835': auftr0835,
+      '0843': sumEuro([overhead, miete, gegenst, auftr0843]),
+    };
+  }, [activePlan, yearKeys]);
+
+  // 20-%-Umschichtungs-Wächter (ANBest-P Überschreitung >120 %)
+  const overBudgetPositions = useMemo(() => {
+    return PROFI_POSITIONEN.filter((pos) => {
+      const p = posPlan[pos.code] || 0;
+      const i = posIst[pos.code] || 0;
+      return p > 0 && i > p * 1.2;
+    });
+  }, [posPlan, posIst]);
+
+  // Verfalls-Radar (15.11. Kassenschluss): aktuelles Scope-Restbudget in 0835/0843
+  const unspentAlert2026 = useMemo(() => {
+    const plan0835 = posPlan['0835'] || 0;
+    const ist0835 = posIst['0835'] || 0;
+    const rest0835 = Math.max(0, subEuro(plan0835, ist0835));
+    return {
+      rest0835,
+      ratioOpen: plan0835 > 0 ? (rest0835 / plan0835) * 100 : 0,
+    };
+  }, [posPlan, posIst]);
+
+  const profiChartData = useMemo(
+    () =>
+      PROFI_POSITIONEN.map((pos) => ({
+        code: pos.displayCode,
+        name: pos.kurzBezeichnung,
+        Plan: posPlan[pos.code] || 0,
+        Ist: posIst[pos.code] || 0,
+      })),
+    [posPlan, posIst]
+  );
+
+  // Offene Vergaben / Check-Items
+  const vergabenOhneBafa = vergaben.filter(
+    (v) => !v.bafaFreigabe && v.status !== 'abgeschlossen'
+  ).length;
+  const offeneTasks = tasks.filter((t) => t.status !== 'erledigt');
+  const activePilotsCount = usecases.filter(
+    (u) => u.status === 'aktiv' || u.status === 'in Vorbereitung' || u.status === 'kritisch'
+  ).length;
+
+  const achievements = useMemo(
+    () =>
+      evaluateProjectAchievements({
+        personal,
+        rechnungen,
+        zas,
+        vergaben,
+        usecases,
+        oekoprofitCheckups,
+        settings,
+      }),
+    [personal, rechnungen, zas, vergaben, usecases, oekoprofitCheckups, settings]
+  );
+
+  const bossEvent = useMemo(
+    () =>
+      computeBossEventKassenschluss({
+        zas,
+        rechnungen,
+        targetYear:
+          activeYear && /^\d{4}$/.test(activeYear) ? Number(activeYear) : 2026,
+      }),
+    [zas, rechnungen, activeYear]
+  );
+
+  const unlockedCount = achievements.filter((a) => a.unlocked).length;
+
+  const resourcePipeline = useMemo(
+    () =>
+      computeResourcePipeline({
+        posPlan,
+        posIst,
+        vergaben,
+        mittelabrufe: yearAbr,
+        rechnungen: yearRech,
+        vorsteuerabzugsberechtigt: settings.vorsteuerabzugsberechtigt,
+      }),
+    [posPlan, posIst, vergaben, yearAbr, yearRech, settings.vorsteuerabzugsberechtigt]
+  );
+
+  const executiveAdvisors = useMemo(
+    () =>
+      computeExecutiveAdvisors({
+        zas,
+        vergaben,
+        oekoprofitCheckups,
+        usecases,
+        rechnungen,
+        unspent0835: unspentAlert2026.rest0835,
+      }),
+    [zas, vergaben, oekoprofitCheckups, usecases, rechnungen, unspentAlert2026.rest0835]
+  );
+
+  const chronikFrames = useMemo(
+    () =>
+      computeChronikTimeline({
+        personal,
+        rechnungen,
+        vergaben,
+        usecases,
+        events,
+        foerderByYear: activePlan.foerder as Record<string, { gesamt: number }>,
+        vorsteuerabzugsberechtigt: settings.vorsteuerabzugsberechtigt,
+      }),
+    [
+      personal,
+      rechnungen,
+      vergaben,
+      usecases,
+      events,
+      activePlan.foerder,
+      settings.vorsteuerabzugsberechtigt,
+    ]
+  );
 
   return (
-    <div className="space-y-8 animate-fade-in max-w-full">
-      <style dangerouslySetInnerHTML={{ __html: `
-        @keyframes flowHorizontal {
-          0% { left: -30%; }
-          15% { opacity: 1; }
-          85% { opacity: 1; }
-          100% { left: 120%; }
-        }
-        @keyframes flowVertical {
-          0% { top: -30%; }
-          15% { opacity: 1; }
-          85% { opacity: 1; }
-          100% { top: 120%; }
-        }
-        .flow-line-h {
-          position: relative;
-          width: 100%;
-          height: 4px;
-          background-color: #e4e4e7;
-          border-radius: 9999px;
-          overflow: hidden;
-        }
-        .flow-line-h::after {
-          content: '';
-          position: absolute;
-          top: 0;
-          height: 100%;
-          width: 50px;
-          background: linear-gradient(90deg, transparent, #58B49D, #041422, transparent);
-          animation: flowHorizontal 2s infinite cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        .flow-line-v {
-          position: relative;
-          height: 50px;
-          width: 4px;
-          background-color: #e4e4e7;
-          border-radius: 9999px;
-          overflow: hidden;
-        }
-        .flow-line-v::after {
-          content: '';
-          position: absolute;
-          left: 0;
-          width: 100%;
-          height: 25px;
-          background: linear-gradient(180deg, transparent, #58B49D, #041422, transparent);
-          animation: flowVertical 1.6s infinite cubic-bezier(0.4, 0, 0.2, 1);
-        }
-      `}} />
-      
-      {/* 1. Stately Modern Header Banner */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between bg-zs-blau-schwarz text-white p-6 md:p-8 rounded-3xl relative overflow-hidden shadow-lg border border-white/5">
-        <div className="absolute top-0 right-0 w-80 h-80 bg-zs-textil-gruen/10 rounded-full blur-[100px] pointer-events-none"></div>
-        <div className="absolute -bottom-10 -left-10 w-64 h-64 bg-zs-chemie-violett/10 rounded-full blur-[80px] pointer-events-none"></div>
-        
-        <div className="space-y-2 z-10 w-full md:w-3/4">
-          <div className="inline-flex items-center gap-1.5 bg-white/10 backdrop-blur-md px-3 py-1 rounded-full text-[10px] font-mono tracking-widest text-[#58B49D] font-bold uppercase border border-white/5">
-            <span className="w-2 h-2 rounded-full bg-[#58B49D] bubble-pulse"></span>
-            IT-Projektsteuerung &middot; MiD-PCT
-          </div>
-          <h1 className="font-display text-3xl md:text-4xl font-extrabold tracking-tight">
-            Executive <span className="bg-zs-signal-gelb text-zs-blau-schwarz px-1.5 py-0.5 rounded-xs skew-x-3 inline-block">Cockpit</span>
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-zinc-200 pb-4">
+        <div>
+          <span className="text-[11px] font-mono font-semibold text-[#58B49D] uppercase tracking-wider">
+            STARK FKZ {PROFI_STARK_FKZ} &middot; {azaMeta.shortLabel}
+          </span>
+          <h1 className="font-display text-2xl sm:text-3xl font-extrabold text-zs-blau-schwarz tracking-tight mt-0.5">
+            Executive Cockpit
           </h1>
-          
-          {/* Main streamlined status bar - Responsive row */}
-          <div className="pt-2 flex flex-col sm:flex-row sm:items-center gap-3 w-full text-xs">
-            {/* Stat 1 */}
-            <div className="flex items-center justify-between sm:justify-start gap-1.5 bg-white/5 px-2.5 py-1.5 rounded-lg border border-white/10 flex-1 sm:flex-none">
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#58B49D]"></span>
-                <span className="text-zinc-400 font-mono text-[9px] uppercase tracking-wider">Mittelzufluss:</span>
-                <span className="font-mono font-bold text-white">{formatEuro(totalFuerderungEingegangen, 0)}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="text-zinc-500 font-mono text-[10px]">/ {formatEuro(totalFoerderungPlanSoll, 0)}</span>
-                <span className="text-[#58B49D] font-mono text-[10px] font-bold">({targetReachingPercentage.toFixed(1)}%)</span>
-              </div>
-            </div>
-
-            {/* Stat 2 */}
-            <div className="flex items-center justify-between sm:justify-start gap-1.5 bg-white/5 px-2.5 py-1.5 rounded-lg border border-white/10 flex-1 sm:flex-none">
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-zs-signal-gelb"></span>
-                <span className="text-zinc-400 font-mono text-[9px] uppercase tracking-wider">Sachkosten:</span>
-                <span className="font-mono font-bold text-white">{formatEuro(actualInvoicesSum, 0)}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="text-zinc-500 font-mono text-[10px]">/ {formatEuro(sachkosten, 0)}</span>
-                <span className={`font-mono text-[10px] font-bold ${allowanceUtilizationRate > 100 ? 'text-red-400' : 'text-zs-signal-gelb'}`}>({allowanceUtilizationRate.toFixed(1)}%)</span>
-              </div>
-            </div>
-
-            {/* Stat 3 */}
-            <div className="flex items-center justify-between sm:justify-start gap-1.5 bg-white/5 px-2.5 py-1.5 rounded-lg border border-white/10 flex-1 sm:flex-none">
-              <div className="flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-[#BA8B68]"></span>
-                <span className="text-zinc-400 font-mono text-[9px] uppercase tracking-wider">Lohnkosten:</span>
-                <span className="font-mono font-bold text-white">{formatEuro(agGesamt, 0)}</span>
-              </div>
-              <span className="text-[8px] bg-emerald-500/10 text-emerald-400 font-mono px-1 rounded uppercase font-bold border border-emerald-500/20">REVISION</span>
-            </div>
-          </div>
+          <p className="text-xs text-zinc-500 mt-1 flex flex-wrap items-center gap-2">
+            <span>WIN.DN Fördermittelsteuerung &middot; {activeYearLabel} &middot; 90 % Bund / 10 % Eigenanteil</span>
+            {settings.privacyMode && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zs-blau-schwarz text-zs-signal-gelb font-mono text-[10px] font-bold">
+                <EyeOff className="w-3 h-3" />
+                Privacy-Modus aktiv
+              </span>
+            )}
+          </p>
         </div>
 
-        <div className="mt-6 md:mt-0 flex flex-col items-start md:items-end gap-1.5 z-10 border-t border-white/10 pt-4 md:pt-0 md:border-0 font-mono text-xs text-zinc-400 self-stretch md:self-auto justify-between md:justify-start">
-          <div className="bg-white/5 border border-white/10 rounded-lg p-2.5 px-4 text-right">
-            <span className="text-[10px] uppercase text-zinc-400 block tracking-wider">Ausgewähltes Jahr</span>
-            <span className="text-lg font-bold text-zs-signal-gelb font-mono block">{activeYearLabel}</span>
-          </div>
-          <span className="text-[10px] italic mt-auto">WIN.DN GmbH &middot; Revisionskonform</span>
-        </div>
-      </div>
-
-      {/* 2. Bento Grid KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        
-        {/* KPI 1: BAFA eingegangen */}
-        <div className="bg-white p-5 rounded-2xl border border-zinc-200/80 shadow-xs relative overflow-hidden transition-all duration-300 hover:shadow-md hover:border-zinc-300">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] font-mono font-bold tracking-widest text-zinc-400 uppercase">
-              BAFA EINGEGANGEN (IST)
-            </span>
-            <div className="p-2 bg-yellow-50 rounded-xl">
-              <Coins className="w-4 h-4 text-amber-600" />
-            </div>
-          </div>
-          
-          <div className="mt-4">
-            <span className="text-2xl font-mono font-extrabold text-zs-blau-schwarz block">
-              {formatEuro(totalBafaEingegangen, 2)}
-            </span>
-            <span className="text-[11px] text-zinc-500 font-mono mt-0.5 block">
-              Soll Bund (90%): <strong className="text-zinc-800">{formatEuro(bafaAnteil)}</strong>
-            </span>
-          </div>
-
-          {/* Mini progress bar of payouts received */}
-          <div className="mt-4 space-y-1">
-            <div className="flex justify-between text-[10px] font-mono text-zinc-400">
-              <span>Auszahlungsgrad</span>
-              <span>{bafaAnteil > 0 ? ((totalBafaEingegangen / bafaAnteil) * 100).toFixed(1) : 0}%</span>
-            </div>
-            <div className="w-full bg-zinc-100 h-1 rounded-full overflow-hidden">
-              <div 
-                className="bg-zs-blau-schwarz h-full rounded-full transition-all duration-500"
-                style={{ width: `${Math.min(100, bafaAnteil > 0 ? (totalBafaEingegangen / bafaAnteil) * 100 : 0)}%` }}
-              ></div>
-            </div>
-          </div>
-        </div>
-
-        {/* KPI 2: LHO NRW eingegangen */}
-        <div className="bg-white p-5 rounded-2xl border border-zinc-200/80 shadow-xs relative overflow-hidden transition-all duration-300 hover:shadow-md hover:border-zinc-300">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] font-mono font-bold tracking-widest text-zinc-400 uppercase">
-              LHO NRW EINGEGANGEN
-            </span>
-            <div className="p-2 bg-[#58B49D]/10 rounded-xl">
-              <ArrowDownCircle className="w-4 h-4 text-zs-textil-gruen" />
-            </div>
-          </div>
-
-          <div className="mt-4">
-            <span className="text-2xl font-mono font-extrabold text-zs-textil-gruen block">
-              {formatEuro(totalLhoEingegangen, 2)}
-            </span>
-            <span className="text-[11px] text-zinc-500 font-mono mt-0.5 block">
-              Soll NRW (7.5%): <strong className="text-zinc-800">{formatEuro(lhoAnteil)}</strong>
-            </span>
-          </div>
-
-          {/* Mini progress bar of payouts received */}
-          <div className="mt-4 space-y-1">
-            <div className="flex justify-between text-[10px] font-mono text-zinc-400">
-              <span>Zuweisungsgrad</span>
-              <span>{lhoAnteil > 0 ? ((totalLhoEingegangen / lhoAnteil) * 100).toFixed(1) : 0}%</span>
-            </div>
-            <div className="w-full bg-zinc-100 h-1 rounded-full overflow-hidden">
-              <div 
-                className="bg-zs-textil-gruen h-full rounded-full transition-all duration-500"
-                style={{ width: `${Math.min(100, lhoAnteil > 0 ? (totalLhoEingegangen / lhoAnteil) * 100 : 0)}%` }}
-              ></div>
-            </div>
-          </div>
-        </div>
-
-        {/* KPI 3: Global project volume */}
-        <div className="bg-white p-5 rounded-2xl border border-zinc-200/80 shadow-xs relative overflow-hidden transition-all duration-300 hover:shadow-md hover:border-zinc-300">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] font-mono font-bold tracking-widest text-zinc-400 uppercase">
-              PROJEKTVOLUMEN GESAMT
-            </span>
-            <div className="p-2 bg-amber-50 rounded-xl">
-              <TrendingUp className="w-4 h-4 text-zs-papier-braun" />
-            </div>
-          </div>
-
-          <div className="mt-4">
-            <span className="text-2xl font-mono font-extrabold text-zs-papier-braun block">
-              1.545.876,29 €
-            </span>
-            <span className="text-[11px] text-zinc-500 font-mono mt-0.5 block">
-              Rechtsverbindlicher Planwert
-            </span>
-          </div>
-
-          <div className="mt-4 pt-1.5 border-t border-zinc-100 flex items-center justify-between text-[10px] font-mono text-zinc-400">
-            <span>Projektzeitraum:</span>
-            <span className="font-bold text-zinc-600">04/2025 – 03/2029</span>
-          </div>
-        </div>
-
-        {/* KPI 4: Active entities */}
-        <div className="bg-white p-5 rounded-2xl border border-zinc-200/80 shadow-xs relative overflow-hidden transition-all duration-300 hover:shadow-md hover:border-zinc-300">
-          <div className="flex justify-between items-start">
-            <span className="text-[10px] font-mono font-bold tracking-widest text-zinc-400 uppercase">
-              STRUKTURELLE AKTIVITÄT
-            </span>
-            <div className="p-2 bg-purple-50 rounded-xl">
-              <Layers className="w-4 h-4 text-zs-chemie-violett" />
-            </div>
-          </div>
-
-          <div className="mt-4">
-            <span className="text-2xl font-mono font-extrabold text-[#7F6DBA] block">
-              {activeUseCasesCount} Use Cases
-            </span>
-            <span className="text-[11px] text-zinc-500 font-mono mt-0.5 block">
-              {activeVergabenCount} Ausschreibungen im Lauf
-            </span>
-          </div>
-
-          <div className="mt-4 pt-1.5 border-t border-zinc-100 flex items-center justify-between text-[10px] font-mono text-zinc-400">
-            <span>To-Dos Pending:</span>
-            <span className="font-bold text-red-650 bg-red-50 px-1.5 rounded border border-red-100">
-              {tasks.filter(t => t.status !== 'erledigt').length} offen
-            </span>
-          </div>
-        </div>
-
-      </div>
-
-      {/* 3. Relational Flow Schematics: Cumulative flow calculation */}
-      <div className="bg-white p-6 rounded-2xl border border-zinc-200 shadow-xs relative overflow-hidden transition-all duration-300">
-        <div className="absolute top-0 right-0 p-3 text-zinc-200 pointer-events-none font-bold font-mono tracking-widest text-[50px] opacity-10 select-none">
-          FLOW
-        </div>
-        
-        <div 
-          onClick={() => setIsFlowCollapsed(!isFlowCollapsed)}
-          className="flex items-center gap-2 cursor-pointer select-none group focus:outline-none"
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              setIsFlowCollapsed(!isFlowCollapsed);
-            }
-          }}
+        <button
+          onClick={() =>
+            onNavigateDetail('mittelabrufe', {
+              mittelabrufeSubTab: 'za-rechner',
+            })
+          }
+          className="px-4 py-2 text-xs font-bold rounded-lg bg-zs-blau-schwarz text-white hover:bg-[#08243d] transition-colors flex items-center gap-2 cursor-pointer self-start sm:self-auto whitespace-nowrap"
         >
-          <Activity className="w-4 h-4 text-zs-blau-schwarz group-hover:scale-115 transition-transform duration-200" />
-          <h2 className="text-xs font-mono font-bold tracking-wider text-zs-blau-schwarz uppercase group-hover:text-zinc-650 transition-colors">
-            Kaskadierendes Finanz-Zuordnungsmodell (Kumuliert)
-          </h2>
-          
-          <div className="flex items-center gap-2 ml-auto">
-            <span className="text-[9px] bg-zinc-100 font-mono px-2 py-0.5 rounded border border-zinc-250 text-zinc-500 font-bold uppercase hidden sm:inline-block">
-              Rechtsverbindliche Schablone
-            </span>
-            <div className="p-1 hover:bg-zinc-100 rounded-md transition-colors">
-              {isFlowCollapsed ? (
-                <ChevronDown className="w-4 h-4 text-zinc-500 group-hover:text-zs-blau-schwarz transition-colors" />
-              ) : (
-                <ChevronUp className="w-4 h-4 text-zinc-500 group-hover:text-zs-blau-schwarz transition-colors" />
-              )}
+          <span>profi-online ZA öffnen</span>
+          <ArrowRight className="w-3.5 h-3.5 text-zs-signal-gelb" />
+        </button>
+      </div>
+
+      {/* Berater-Stab (Simulation Mode) ODER schlichte Compliance-Warnleisten (Gremien-Stealth-Modus) */}
+      {gamificationEnabled ? (
+        <ExecutiveAdvisorsPanel
+          advisors={executiveAdvisors}
+          onNavigate={(page, filters) => onNavigateDetail(page, filters)}
+        />
+      ) : (
+        (kassenbestandAlerts.length > 0 || chainErrors.length > 0 || overBudgetPositions.length > 0) && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          {kassenbestandAlerts.map((alert) => (
+            <button
+              key={`kb-${alert.zaId}`}
+              type="button"
+              onClick={() =>
+                onNavigateDetail('mittelabrufe', { mittelabrufeSubTab: 'za-rechner' })
+              }
+              className="text-left bg-amber-50 border border-amber-300 rounded-xl p-3.5 flex items-start gap-3 hover:border-amber-500 transition-colors cursor-pointer"
+            >
+              <Clock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+              <div className="text-xs text-amber-950 leading-relaxed">
+                <div className="font-bold">
+                  ANBest-P 2-Monats-Verwendungsfrist: Positiver Kassenbestand (+{formatEuro(alert.zeile16Kassenbestand, 2)})
+                </div>
+                <div className="text-[11px] text-amber-800 mt-0.5 font-mono tabular-nums">
+                  {alert.bezeichnung} &middot; Fristende: {formatDate(alert.twoMonthDeadline)}{' '}
+                  {alert.daysUntilDeadline !== null &&
+                    (alert.daysUntilDeadline >= 0
+                      ? `(noch ${alert.daysUntilDeadline} Tage)`
+                      : `(seit ${Math.abs(alert.daysUntilDeadline)} Tagen überschritten – Zinsrisiko!)`)}
+                </div>
+              </div>
+            </button>
+          ))}
+
+          {(chainErrors.length > 0 || overBudgetPositions.length > 0) && (
+            <button
+              type="button"
+              onClick={() =>
+                onNavigateDetail(chainErrors.length > 0 ? 'mittelabrufe' : 'budget', {
+                  mittelabrufeSubTab: 'za-rechner',
+                  budgetTab: 'kategorie',
+                })
+              }
+              className="text-left bg-red-50 border border-red-200 rounded-xl p-3.5 flex items-start gap-3 hover:border-red-400 transition-colors cursor-pointer"
+            >
+              <ShieldAlert className="w-4 h-4 text-red-700 shrink-0 mt-0.5" />
+              <div className="text-xs text-red-950 leading-relaxed">
+                {chainErrors.length > 0 && (
+                  <div className="font-bold">
+                    ZA-Ketten-Abweichung erkannt ({chainErrors.length} ZA): Spalte 2 weicht von Vor-ZA ab.
+                  </div>
+                )}
+                {overBudgetPositions.length > 0 && (
+                  <div className="font-bold">
+                    ANBest-P 20-%-Umschichtungswächter:{' '}
+                    {overBudgetPositions.map((p) => `Pos. ${p.displayCode}`).join(', ')} über 120 % Ansatz.
+                  </div>
+                )}
+                <div className="text-[11px] text-red-700 mt-0.5">
+                  Klicken für direkte Prüfung &amp; Gegensteuerung im Fachmodul.
+                </div>
+              </div>
+            </button>
+          )}
+        </div>
+        )
+      )}
+
+      {/* Zentrales Cockpit-Visual: 2.5D-Transformationskarte Düren */}
+      <HexTransformationMap
+        usecases={usecases}
+        vergaben={vergaben}
+        oekoprofitCheckups={oekoprofitCheckups}
+        setSelectedUseCaseId={(useCaseId) => {
+          if (useCaseId !== null) {
+            onNavigateDetail('usecase', { useCaseId });
+          }
+        }}
+        onSelectUseCase={(useCaseId) =>
+          onNavigateDetail('usecase', { useCaseId })
+        }
+        onUpdateUseCase={onUpdateUseCase}
+      />
+
+      {/* 3 Kern-KPI-Karten mit direktem Drilldown */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <button
+          type="button"
+          onClick={() =>
+            onNavigateDetail('budget', {
+              budgetTab: 'jahre',
+              budgetFocus: 'bundesmittel',
+            })
+          }
+          className="text-left bg-white p-6 rounded-xl border border-zinc-200 hover:border-zs-blau-schwarz transition-all flex flex-col justify-between cursor-pointer group"
+        >
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-mono font-bold text-zinc-500 uppercase tracking-wider">
+                Bundesmittel-Saldo (90 %)
+              </span>
+              <span className="text-xs font-mono text-zs-blau-schwarz opacity-60 group-hover:opacity-100 flex items-center gap-1">
+                <span>Budget</span>
+                <ArrowRight className="w-3 h-3" />
+              </span>
             </div>
+            <div className="font-mono text-3xl font-bold text-zs-blau-schwarz tabular-nums mt-3">
+              {formatEuro(bafaRest, 2)}
+            </div>
+            <p className="text-xs text-zinc-500 mt-1 tabular-nums">
+              Restbudget Bund aus {formatEuro(planSplit.bund90, 2)} ({bafaQuotePct.toFixed(1)} % abgerufen)
+            </p>
+          </div>
+          <div className="mt-4 w-full bg-zinc-100 h-2 rounded-full overflow-hidden">
+            <div
+              className="bg-zs-blau-schwarz h-full transition-all duration-300"
+              style={{ width: `${bafaQuotePct}%` }}
+            />
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() =>
+            onNavigateDetail('budget', {
+              budgetTab: 'kategorie',
+              budgetFocus: 'eigenanteil',
+            })
+          }
+          className="text-left bg-white p-6 rounded-xl border border-zinc-200 hover:border-[#BA8B68] transition-all flex flex-col justify-between cursor-pointer group"
+        >
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-mono font-bold text-zinc-500 uppercase tracking-wider">
+                Eigenanteil (10 % WIN.DN)
+              </span>
+              <span className="text-xs font-mono text-[#BA8B68] opacity-80 group-hover:opacity-100 flex items-center gap-1">
+                <span>Nachweis</span>
+                <ArrowRight className="w-3 h-3" />
+              </span>
+            </div>
+            <div className="font-mono text-3xl font-bold text-[#BA8B68] tabular-nums mt-3">
+              {formatEuro(istSplit.eigen10, 2)}
+            </div>
+            <p className="text-xs text-zinc-500 mt-1 tabular-nums">
+              Erbrachter Eigenanteil von {formatEuro(planSplit.eigen10, 2)} Plan-Soll ({eigenQuotePct.toFixed(1)} %)
+            </p>
+          </div>
+          <div className="mt-4 w-full bg-zinc-100 h-2 rounded-full overflow-hidden">
+            <div
+              className="bg-[#BA8B68] h-full transition-all duration-300"
+              style={{ width: `${eigenQuotePct}%` }}
+            />
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() =>
+            onNavigateDetail('mittelabrufe', {
+              mittelabrufeSubTab: 'abrufe',
+              mittelabrufeStatusFilter: 'open',
+            })
+          }
+          className="text-left bg-white p-6 rounded-xl border border-zinc-200 hover:border-[#58B49D] transition-all flex flex-col justify-between cursor-pointer group"
+        >
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-mono font-bold text-zinc-500 uppercase tracking-wider">
+                Offene Abrufe &amp; Auszahlungen
+              </span>
+              <span className="text-xs font-mono text-[#58B49D] opacity-80 group-hover:opacity-100 flex items-center gap-1">
+                <span>Abrufe</span>
+                <ArrowRight className="w-3 h-3" />
+              </span>
+            </div>
+            <div className="font-mono text-3xl font-bold text-[#58B49D] tabular-nums mt-3">
+              {formatEuro(offeneForderungen, 2)}
+            </div>
+            <p className="text-xs text-zinc-500 mt-1 tabular-nums">
+              {latestZa
+                ? `Letzte ZA (${latestZa.bezeichnung}): ${formatEuro(latestZa.zeile19Anforderung, 2)} (Z. 19)`
+                : `Eingegangen: ${formatEuro(abrufEingegangen, 2)} / ${formatEuro(abrufBeantragt, 2)}`}
+            </p>
+          </div>
+          <div className="mt-4 flex items-center justify-between text-[11px] font-mono text-zinc-500 border-t border-zinc-100 pt-2.5">
+            <span>Kumuliertes Ist (100 %):</span>
+            <span className="font-bold text-zs-blau-schwarz tabular-nums">{formatEuro(istGesamt, 2)}</span>
+          </div>
+        </button>
+      </div>
+
+      {/* Ressourcen-Fluss (Anno-Sankey-Pipeline & Engpass-Detektor) */}
+      {gamificationEnabled && (
+        <ResourceSankeyPipeline
+          pipeline={resourcePipeline}
+          activeYearLabel={activeYearLabel}
+          onNavigateDetail={onNavigateDetail}
+        />
+      )}
+
+      {/* profi-online Kostenpositionen (0812–0843) & Chart */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Tabelle profi-online */}
+        <div className="lg:col-span-7 bg-white rounded-xl border border-zinc-200 overflow-hidden flex flex-col">
+          <div className="px-5 py-4 border-b border-zinc-100 flex items-center justify-between">
+            <div>
+              <h2 className="font-display font-bold text-base text-zs-blau-schwarz">
+                profi-online Kostenpositionen (0812–0843)
+              </h2>
+              <p className="text-[11px] text-zinc-500 mt-0.5">
+                {azaMeta.label} &middot; Klicken für Drilldown
+              </p>
+            </div>
+            <span className="text-[11px] font-mono text-zinc-500 tabular-nums">
+              Gesamt-Plan: {formatEuro(planGesamt, 2)}
+            </span>
+          </div>
+          <div className="overflow-x-auto flex-grow">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-[10px] text-zinc-500 uppercase">
+                  <th className="py-2.5 px-4">Pos.</th>
+                  <th className="py-2.5 px-3">Bezeichnung</th>
+                  <th className="py-2.5 px-3 text-right">AZA-Plan</th>
+                  <th className="py-2.5 px-3 text-right">Ist erfasst</th>
+                  <th className="py-2.5 px-4 text-right">Quote</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-100">
+                {PROFI_POSITIONEN.map((pos) => {
+                  const p = posPlan[pos.code] || 0;
+                  const i = posIst[pos.code] || 0;
+                  const pct = p > 0 ? (i / p) * 100 : 0;
+                  const isOver20 = p > 0 && i > p * 1.2;
+                  const targetPage =
+                    pos.code === '0812' || pos.code === '0817' || pos.code === '0820'
+                      ? 'personal'
+                      : 'rechnungen';
+                  return (
+                    <tr
+                      key={pos.code}
+                      onClick={() =>
+                        onNavigateDetail(targetPage, {
+                          rechnungenProfiPos: targetPage === 'rechnungen' ? pos.code : '',
+                        })
+                      }
+                      className="hover:bg-zinc-50 transition-colors cursor-pointer"
+                    >
+                      <td className="py-3 px-4 font-mono font-bold text-zs-blau-schwarz">
+                        {pos.displayCode}
+                      </td>
+                      <td className="py-3 px-3">
+                        <div className="font-semibold text-zinc-800">{pos.bezeichnung}</div>
+                        <div className="text-[11px] text-zinc-400 truncate max-w-[260px]">
+                          {pos.beschreibung}
+                        </div>
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono text-zinc-600 tabular-nums">
+                        {formatEuro(p, 2)}
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono font-bold text-zs-blau-schwarz tabular-nums">
+                        {formatEuro(i, 2)}
+                      </td>
+                      <td className="py-3 px-4 text-right font-mono tabular-nums">
+                        <span
+                          className={`font-semibold ${
+                            isOver20
+                              ? 'text-red-700'
+                              : pct > 90
+                              ? 'text-amber-700'
+                              : 'text-[#58B49D]'
+                          }`}
+                        >
+                          {pct.toFixed(1)} %
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
 
-        {!isFlowCollapsed && (
-          <div className="animate-fade-in pt-4 mt-4 border-t border-zinc-100">
-            {/* Desktop Cascading Schematic */}
-            <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
-              
-              {/* Step 1: Base Wages Inputs */}
-              <div className="md:col-span-3 space-y-3">
-                <div className="bg-zinc-50 p-4 rounded-xl border border-zinc-200/60 relative">
-                  <div className="text-[9px] font-mono text-zinc-400 uppercase tracking-widest">A. Arbeitgeber-Kosten</div>
-                  <div className="text-base font-mono font-black text-zs-blau-schwarz mt-1">{formatEuro(agGesamt)}</div>
-                  <div className="text-[10px] text-zinc-400 font-mono mt-1">Lohnkosten Projektpartner</div>
-                  <div className="absolute -right-3.5 top-1/2 -translate-y-1/2 bg-zinc-200 rounded-full p-0.5 hidden md:block">
-                    <ChevronRight className="w-3 h-3 text-zinc-400" />
-                  </div>
-                </div>
-                
-                <div className="bg-zinc-50 p-4 rounded-xl border border-zinc-200/60 relative">
-                  <div className="text-[9px] font-mono text-zinc-400 uppercase tracking-widest">B. Sachkostenpauschale</div>
-                  <div className="text-base font-mono font-black text-zinc-500 mt-1">{formatEuro(sachkosten)}</div>
-                  <div className="text-[10px] text-zinc-400 font-mono mt-1">Flat-Rate (10% von A)</div>
-                  <div className="absolute -right-3.5 top-1/2 -translate-y-1/2 bg-zinc-200 rounded-full p-0.5 hidden md:block">
-                    <ChevronRight className="w-3 h-3 text-zinc-400" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Connector Column for Mobile / visual separator */}
-              <div className="md:col-span-1 flex justify-center items-center py-4 md:py-0 w-full px-2">
-                <div className="flow-line-v md:hidden" />
-                <div className="flow-line-h hidden md:block" />
-              </div>
-
-              {/* Step 2: Summed Eligible volume */}
-              <div className="md:col-span-3">
-                <div className="bg-gradient-to-br from-zinc-50 to-zinc-100 p-5 rounded-2xl border-2 border-zs-blau-schwarz/25 relative text-center">
-                  <div className="text-[9px] font-mono text-zs-blau-schwarz/70 uppercase tracking-wider font-bold">C. Gesamt Förderfähig (A + B)</div>
-                  <div className="text-xl font-mono font-black text-zs-blau-schwarz mt-1.5">{formatEuro(foerderfaehig)}</div>
-                  <div className="text-[10px] text-zinc-500 font-mono mt-1">100% veranschlagte Summe</div>
-                  
-                  {/* Receipt validation metrics */}
-                  <div className="mt-3 pt-2 border-t border-zinc-250 text-left">
-                    <div className="flex justify-between text-[9px] font-mono text-zinc-600 font-semibold">
-                      <span>Rechnungen Ist:</span>
-                      <span>{formatEuro(actualInvoicesSum)}</span>
-                    </div>
-                    <div className="w-full bg-zinc-200 h-1 rounded-full mt-1 overflow-hidden">
-                      <div 
-                        className={`h-full rounded-full ${allowanceUtilizationRate > 100 ? 'bg-red-500' : 'bg-[#58B49D]'}`}
-                        style={{ width: `${Math.min(100, allowanceUtilizationRate)}%` }}
-                      ></div>
-                    </div>
-                    <span className="text-[8px] text-zinc-450 block text-right mt-0.5 font-mono">
-                      Sachbeleg-Ausschöpfung: {allowanceUtilizationRate.toFixed(1)}%
-                    </span>
-                  </div>
-
-                  <div className="absolute -right-3.5 top-1/2 -translate-y-1/2 bg-zinc-200 rounded-full p-0.5 hidden md:block">
-                    <ChevronRight className="w-3 h-3 text-zinc-400" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Connector */}
-              <div className="md:col-span-1 flex justify-center items-center py-4 md:py-0 w-full px-2">
-                <div className="flow-line-v md:hidden" />
-                <div className="flow-line-h hidden md:block" />
-              </div>
-
-              {/* Step 3: Breakdown Splits */}
-              <div className="md:col-span-4 space-y-2">
-                
-                <div className="bg-[#041422]/5 p-3 rounded-xl border border-zs-blau-schwarz/15 flex items-center justify-between">
-                  <div>
-                    <span className="text-[9px] font-mono text-[#041422]/70 uppercase font-semibold">BAFA Bund (90%)</span>
-                    <span className="text-sm font-mono font-black text-zs-blau-schwarz block mt-0.5">{formatEuro(bafaAnteil)}</span>
-                  </div>
-                  <div className="text-[10px] font-mono font-bold bg-white p-1 px-1.5 rounded border border-zinc-200">
-                    Bund
-                  </div>
-                </div>
-
-                <div className="bg-[#58B49D]/10 p-3 rounded-xl border border-zs-textil-gruen/20 flex items-center justify-between">
-                  <div>
-                    <span className="text-[9px] font-mono text-zs-textil-gruen/80 uppercase font-semibold">LHO NRW (7.5%)</span>
-                    <span className="text-sm font-mono font-black text-emerald-800 block mt-0.5">{formatEuro(lhoAnteil)}</span>
-                  </div>
-                  <div className="text-[10px] font-mono font-bold bg-white text-zs-textil-gruen p-1 px-1.5 rounded border border-[#58B49D]/20">
-                    Land
-                  </div>
-                </div>
-
-                <div className="bg-[#F9FF00]/10 p-3 rounded-xl border border-amber-300/30 flex items-center justify-between">
-                  <div>
-                    <span className="text-[9px] font-mono text-amber-800 uppercase font-semibold">Eigenanteil WIN.DN (2.5%)</span>
-                    <span className="text-sm font-mono font-black text-amber-700 block mt-0.5">{formatEuro(eigenAnteil)}</span>
-                  </div>
-                  <div className="text-[10px] font-mono font-bold bg-white text-amber-600 p-1 px-1.5 rounded border border-amber-100">
-                    Eigen
-                  </div>
-                </div>
-
-              </div>
-
-            </div>
+        {/* Chart */}
+        <div className="lg:col-span-5 bg-white rounded-xl border border-zinc-200 p-5 flex flex-col">
+          <div className="mb-3">
+            <h2 className="font-display font-bold text-base text-zs-blau-schwarz">
+              Soll / Ist je profi-Position
+            </h2>
+            <p className="text-[11px] text-zinc-500">
+              {settings.vorsteuerabzugsberechtigt ? 'Förderbasis: Netto (§ 15 UStG)' : 'Förderbasis: Brutto'} &middot; {activeYearLabel}
+            </p>
           </div>
-        )}
+          <div className="flex-grow min-h-[240px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={profiChartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e4e4e7" vertical={false} />
+                <XAxis dataKey="code" tick={{ fontSize: 11, fill: '#52525b' }} />
+                <YAxis
+                  tick={{ fontSize: 10, fill: '#71717a' }}
+                  tickFormatter={(v) => `${Math.round(v / 1000)}k`}
+                  width={40}
+                />
+                <Tooltip
+                  formatter={(value: any) => formatEuro(Number(value), 2)}
+                  contentStyle={{
+                    fontSize: '12px',
+                    borderRadius: '8px',
+                    borderColor: '#e4e4e7',
+                  }}
+                />
+                <Bar dataKey="Plan" fill="#e4e4e7" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="Ist" fill="#041422" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
       </div>
 
-      {/* 4. MAIN THREE-COLUMN WORKSPACE - Elegant Side-By-Side Dashboard */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        
-        {/* ========================================================= */}
-        {/* WINDOW 1: FINANZ-CONTROLLING & BUDGETIERUNG (SPALTE 1)    */}
-        {/* ========================================================= */}
-        <div className="bg-white p-5 rounded-3xl border border-zinc-200/80 shadow-xs flex flex-col justify-between space-y-6">
+      {/* Bottom Operational Strip: Verfalls-Radar, Vergaben/Freigaben, Use-Cases & Aufgaben */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* Verfalls-Radar & Übertragungs-Hinweis */}
+        <div className="bg-white rounded-xl border border-zinc-200 p-5 flex flex-col justify-between space-y-3">
           <div>
-            <div className="flex items-center gap-2 border-b border-zinc-100 pb-3 mb-4">
-              <div className="p-1.5 bg-zinc-950 text-white rounded-lg">
-                <Coins className="w-4 h-4" />
-              </div>
-              <div>
-                <span className="text-[9px] text-zinc-400 font-mono block tracking-wider uppercase">Fördermittel-Steuerung</span>
-                <h3 className="font-display font-black text-xs text-zs-blau-schwarz uppercase">1. Budget &amp; Fördersplit</h3>
-              </div>
+            <div className="text-[11px] font-mono text-zinc-500 uppercase font-bold">
+              Kassenschluss 15.11. &middot; Verfalls-Radar Pos. 0835
             </div>
+            <div className="font-mono text-2xl font-bold text-zs-blau-schwarz tabular-nums mt-2">
+              {formatEuro(unspentAlert2026.rest0835, 2)}
+            </div>
+            <p className="text-xs text-zinc-500 mt-1">
+              Offenes Restbudget in Vergaben/Fremdleistungen ({unspentAlert2026.ratioOpen.toFixed(1)} % unverausgabt). Bei Nichtabruf bis 15.11. rechtzeitig Übertragungsantrag (Referat 424) stellen.
+            </p>
+          </div>
+          <button
+            onClick={() =>
+              onNavigateDetail('budget', { budgetTab: 'kategorie' })
+            }
+            className="text-xs font-semibold text-zs-blau-schwarz hover:underline flex items-center gap-1 cursor-pointer self-start"
+          >
+            <span>Übertragungs-Assistent öffnen</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
 
-            {/* NEW GRAPH: Budget splits donut chart */}
-            <div className="bg-zinc-50/50 p-3.5 rounded-xl border border-zinc-150 mb-5 text-center">
-              <span className="text-[10px] font-mono font-bold text-zinc-500 block mb-2 uppercase">Soll-Förderquote Anteilig</span>
-              <div className="h-40 flex items-center justify-center relative">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={budgetSplitData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={45}
-                      outerRadius={65}
-                      paddingAngle={4}
-                      dataKey="value"
-                    >
-                      {budgetSplitData.map((entry, index) => (
-                        <Cell 
-                          key={`cell-${index}`} 
-                          fill={entry.color} 
-                          onClick={() => {
-                            if (!onNavigateDetail) return;
-                            if (entry.name.includes('BAFA')) {
-                              onNavigateDetail('mittelabrufe', { mittelabrufeGeber: 'BAFA_BUND' });
-                            } else if (entry.name.includes('LHO')) {
-                              onNavigateDetail('mittelabrufe', { mittelabrufeGeber: 'LHO_LAND' });
-                            } else {
-                              onNavigateDetail('budget', {});
-                            }
-                          }}
-                          className="cursor-pointer hover:opacity-80 transition-opacity"
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip formatter={(value) => [formatEuro(Number(value), 2), 'Planbetrag']} />
-                  </PieChart>
-                </ResponsiveContainer>
-                {/* Center text on donut chart */}
-                <div className="absolute flex flex-col items-center justify-center">
-                  <span className="text-[9px] font-mono text-zinc-400 uppercase">Förderung</span>
-                  <span className="text-xs font-mono font-black text-zs-blau-schwarz mt-0.5">97.5%</span>
+        {/* Vergaben & Pilot-Use-Cases */}
+        <div className="bg-white rounded-xl border border-zinc-200 p-5 flex flex-col justify-between space-y-3">
+          <div>
+            <div className="text-[11px] font-mono text-zinc-500 uppercase font-bold">
+              Compliance &amp; Transformationspiloten
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <button
+                type="button"
+                onClick={() => onNavigateDetail('vergaben', {})}
+                className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 hover:border-zs-blau-schwarz text-left cursor-pointer"
+              >
+                <div className="text-[10px] font-mono text-zinc-500 uppercase">Ohne BAFA-Freigabe</div>
+                <div className={`text-xl font-mono font-bold tabular-nums mt-0.5 ${vergabenOhneBafa > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+                  {vergabenOhneBafa}
                 </div>
-              </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigateDetail('usecase', {})}
+                className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 hover:border-zs-blau-schwarz text-left cursor-pointer"
+              >
+                <div className="text-[10px] font-mono text-zinc-500 uppercase">Aktive Use-Cases</div>
+                <div className="text-xl font-mono font-bold text-zs-blau-schwarz tabular-nums mt-0.5">
+                  {activePilotsCount}
+                </div>
+              </button>
+            </div>
+          </div>
+          {vergabenOhneBafa > 0 && (
+            <div className="text-[11px] text-red-700 flex items-center gap-1.5 font-medium">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              <span>Rechnungen zu unfreigegebenen Vergaben sind durch Compliance-Gate gesperrt.</span>
+            </div>
+          )}
+        </div>
 
-              {/* Donut Legend */}
-              <div className="grid grid-cols-3 gap-1.5 mt-3 pt-3 border-t border-zinc-200/60 font-mono text-[9px]">
-                {budgetSplitData.map((item) => (
-                  <div key={item.name} className="flex flex-col items-center p-1 rounded hover:bg-zinc-100 transition-colors">
-                    <span className="w-2.5 h-1.5 rounded-xs" style={{ backgroundColor: item.color }}></span>
-                    <span className="text-[10px] font-bold text-zinc-800 mt-1 block truncate max-w-full" title={item.name}>{item.name.split(' ')[0]}</span>
-                    <span className="text-zinc-500 font-semibold">{((item.value / foerderfaehig) * 100).toFixed(1)}%</span>
+        {/* Offene Aufgaben */}
+        <div className="bg-white rounded-xl border border-zinc-200 p-5 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[11px] font-mono text-zinc-500 uppercase font-bold">
+                Fällige Aufgaben ({offeneTasks.length})
+              </span>
+              <button
+                onClick={() =>
+                  onNavigateDetail('aufgaben', { aufgabenStatus: 'offen' })
+                }
+                className="text-xs font-semibold text-zs-blau-schwarz hover:underline cursor-pointer"
+              >
+                Alle
+              </button>
+            </div>
+            {offeneTasks.length === 0 ? (
+              <p className="text-xs text-zinc-400 font-mono py-4 text-center">
+                Keine offenen Aufgaben.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {offeneTasks.slice(0, 3).map((t) => (
+                  <div
+                    key={t.id}
+                    className="flex items-start gap-2.5 text-xs p-2 rounded-lg bg-zinc-50 border border-zinc-100"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onUpdateTask?.(t.id, { status: 'erledigt' })}
+                      className="text-zinc-400 hover:text-[#58B49D] cursor-pointer mt-0.5"
+                      title="Als erledigt markieren"
+                    >
+                      <Square className="w-4 h-4" />
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-zs-blau-schwarz truncate">{t.title}</div>
+                      {t.dueDate && (
+                        <div className="text-[10px] font-mono text-zinc-500">
+                          Fällig: {formatDate(t.dueDate)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          {tasks.some((t) => t.status === 'erledigt') && (
+            <div className="mt-3 pt-2 border-t border-zinc-100 text-[11px] text-zinc-500 flex items-center gap-1.5 font-mono">
+              <CheckSquare className="w-3.5 h-3.5 text-[#58B49D]" />
+              <span>{tasks.filter((t) => t.status === 'erledigt').length} erledigt</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 48-Monate-Chronik-Scrubber, Operation Kassenschluss & Trophäenschrank (nur in Projekt-Steuerung) */}
+      {gamificationEnabled && (
+        <div className="space-y-6">
+          <ChronikScrubber frames={chronikFrames} />
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          {/* Operation Kassenschluss 15.11. */}
+          <div className="lg:col-span-4 bg-[#041422] text-white rounded-xl p-5 flex flex-col justify-between space-y-4">
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-[11px] font-mono text-[#58B49D]">
+                <span className="inline-flex items-center gap-1.5 font-bold">
+                  <Flag className="w-3.5 h-3.5" /> Operation Kassenschluss {bossEvent.targetYear}
+                </span>
+                <span className="tabular-nums">Frist: 15.11.</span>
+              </div>
+              <div className="font-display font-bold text-lg">
+                Jahresabschluss-Fortschritt: {bossEvent.progressPct} %
+              </div>
+              <div className="w-full bg-white/10 h-2 rounded-full overflow-hidden">
+                <div
+                  className="bg-[#10B981] h-full transition-all duration-300"
+                  style={{ width: `${bossEvent.progressPct}%` }}
+                />
+              </div>
+              <div className="space-y-1.5 pt-1">
+                {bossEvent.phases.map((p) => (
+                  <div key={p.id} className="flex items-center justify-between text-[11px] text-zinc-300">
+                    <span className="truncate pr-2">{p.title}</span>
+                    <span
+                      className={`font-mono font-bold shrink-0 ${
+                        p.completed ? 'text-[#10B981]' : 'text-amber-300'
+                      }`}
+                    >
+                      {p.completed ? 'Erledigt' : 'Offen'}
+                    </span>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* QUARTERLY PERSONNEL SPENT */}
-            <div className="space-y-2">
-              <div className="flex justify-between items-center px-1">
-                <span className="text-[10px] font-mono font-extrabold text-zinc-400 uppercase">Laufende Lohnkosten (Quartal)</span>
-                <span className="text-[9px] font-mono bg-zinc-100 p-0.5 px-1.5 rounded border border-zinc-200 text-zinc-650">AG-Ist</span>
-              </div>
-              <div id="cockpit-chart-container" className="h-44 bg-zinc-50/50 p-2.5 rounded-xl border border-zinc-150">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={quarterData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" horizontalFill={['#ffffff', '#f1f5f9']} fillOpacity={0.8} />
-                    <XAxis dataKey="name" fontSize={9} stroke="#94A3B8" tickLine={false} />
-                    <YAxis fontSize={8} stroke="#94A3B8" tickLine={false} axisLine={false} tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k` : v} />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Bar 
-                      name="Lohnkosten IST" 
-                      dataKey="AG-Kosten" 
-                      fill="#041422" 
-                      radius={[3, 3, 0, 0]} 
-                      maxBarSize={18} 
-                      onClick={(data) => {
-                        if (onNavigateDetail && data && data.name) {
-                          onNavigateDetail('personal', { personalQuarter: data.name });
-                        }
-                      }}
-                      className="cursor-pointer hover:opacity-85 transition-opacity"
-                    />
-                    <Bar 
-                      name="Zuwendungsfähig" 
-                      dataKey="Förderfähig" 
-                      fill="#cbd5e1" 
-                      stroke="#041422" 
-                      strokeWidth={1} 
-                      radius={[3, 3, 0, 0]} 
-                      maxBarSize={18} 
-                      onClick={(data) => {
-                        if (onNavigateDetail && data && data.name) {
-                          onNavigateDetail('personal', { personalQuarter: data.name });
-                        }
-                      }}
-                      className="cursor-pointer hover:opacity-85 transition-opacity"
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
+            <button
+              type="button"
+              onClick={() =>
+                onNavigateDetail('mittelabrufe', { mittelabrufeSubTab: 'za-rechner' })
+              }
+              className="w-full py-2 px-3 rounded-lg bg-[#58B49D] text-[#041422] font-bold text-xs hover:bg-[#4ca28b] transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <span>Kassenschluss-Checkliste öffnen</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </button>
           </div>
 
-          <div className="pt-3 border-t border-zinc-100 flex items-center justify-between font-mono text-[9px] text-zinc-500">
-            <span>Finanzierungsplan:</span>
-            <span className="font-bold text-zs-blau-schwarz text-[10px]">Maximalrechnung gesichert</span>
-          </div>
-        </div>
-
-        {/* ========================================================= */}
-        {/* WINDOW 2: FÖRDERABRUF & SACHKOSTEN-PRÜFUNG (SPALTE 2)      */}
-        {/* ========================================================= */}
-        <div className="bg-white p-5 rounded-3xl border border-zinc-200/80 shadow-xs flex flex-col justify-between space-y-6">
-          <div>
-            <div className="flex items-center gap-2 border-b border-zinc-100 pb-3 mb-4">
-              <div className="p-1.5 bg-zs-textil-gruen text-white rounded-lg">
-                <ArrowDownCircle className="w-4 h-4" />
-              </div>
+          {/* Projekt-Trophäenschrank */}
+          <div className="lg:col-span-8 bg-white rounded-xl border border-zinc-200 p-5 space-y-4">
+            <div className="flex items-center justify-between border-b border-zinc-100 pb-3">
               <div>
-                <span className="text-[9px] text-zinc-400 font-mono block tracking-wider uppercase">Fördertranche &amp; Liquidität</span>
-                <h3 className="font-display font-black text-xs text-zs-blau-schwarz uppercase">2. Abruf vs. Inflow</h3>
+                <h2 className="font-display font-bold text-base text-zs-blau-schwarz flex items-center gap-2">
+                  <Award className="w-4 h-4 text-[#BA8B68]" />
+                  <span>Projekt-Trophäenschrank (Operational Mastery)</span>
+                </h2>
+                <p className="text-[11px] text-zinc-500 mt-0.5">
+                  Datengetriebene Meilenstein-Abzeichen aus Live-Belegen, Use-Cases und BAFA-Prüfregeln
+                </p>
               </div>
+              <span className="font-mono text-xs font-bold text-zs-blau-schwarz tabular-nums">
+                {unlockedCount} / {achievements.length} freigeschaltet
+              </span>
             </div>
 
-            {/* NEW GRAPH: Inflow performance Comparison Line / Area chart */}
-            <div className="bg-zinc-50/50 p-3.5 rounded-xl border border-zinc-150 mb-5">
-              <span className="text-[10px] font-mono font-bold text-zinc-500 block mb-2 text-center uppercase">Beantragung vs. Auszahlung (Ist)</span>
-              
-              <div className="h-40">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={[
-                      { name: 'Bund', Beantragt: bafaBeantragt, Eingegangen: totalBafaEingegangen },
-                      { name: 'Land', Beantragt: lhoBeantragt, Eingegangen: totalLhoEingegangen }
-                    ]}
-                    margin={{ top: 10, right: 5, left: -20, bottom: 0 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E2E8F0" />
-                    <XAxis dataKey="name" fontSize={9} stroke="#94A3B8" tickLine={false} />
-                    <YAxis fontSize={8} stroke="#94A3B8" tickLine={false} axisLine={false} tickFormatter={(v) => v >= 1000 ? `${(v/1000).toFixed(0)}k €` : `${v} €`} />
-                    <Tooltip content={<CustomTooltip />} />
-                    <Legend iconType="circle" wrapperStyle={{ fontSize: 9, fontFamily: 'monospace', paddingTop: 8 }} />
-                    <Bar 
-                      name="Soll Beantragt" 
-                      dataKey="Beantragt" 
-                      fill="#94A3B8" 
-                      radius={[3, 3, 0, 0]} 
-                      maxBarSize={20} 
-                      onClick={(data) => {
-                        if (onNavigateDetail && data) {
-                          const name = data.name || data.payload?.name;
-                          if (name === 'Bund') {
-                            onNavigateDetail('mittelabrufe', { mittelabrufeGeber: 'BAFA_BUND' });
-                          } else if (name === 'Land') {
-                            onNavigateDetail('mittelabrufe', { mittelabrufeGeber: 'LHO_LAND' });
-                          }
-                        }
-                      }}
-                      className="cursor-pointer hover:opacity-85 transition-opacity"
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+              {achievements.map((ach) => (
+                <div
+                  key={ach.id}
+                  className={`p-3 rounded-lg border transition-colors ${
+                    ach.unlocked
+                      ? 'border-[#10B981]/50 bg-emerald-50/40'
+                      : 'border-zinc-200 bg-zinc-50/50 opacity-80'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-[10px] font-mono text-zinc-400">{ach.category}</span>
+                    <CheckCircle2
+                      className={`w-4 h-4 shrink-0 ${
+                        ach.unlocked ? 'text-[#10B981]' : 'text-zinc-300'
+                      }`}
                     />
-                    <Bar 
-                      name="Ist Eingegangen" 
-                      dataKey="Eingegangen" 
-                      fill="#58B49D" 
-                      radius={[3, 3, 0, 0]} 
-                      maxBarSize={20} 
-                      onClick={(data) => {
-                        if (onNavigateDetail && data) {
-                          const name = data.name || data.payload?.name;
-                          if (name === 'Bund') {
-                            onNavigateDetail('mittelabrufe', { mittelabrufeGeber: 'BAFA_BUND' });
-                          } else if (name === 'Land') {
-                            onNavigateDetail('mittelabrufe', { mittelabrufeGeber: 'LHO_LAND' });
-                          }
-                        }
-                      }}
-                      className="cursor-pointer hover:opacity-85 transition-opacity"
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* Analytical KPI feedback */}
-              <div className="mt-2.5 pt-2 border-t border-zinc-200/65 flex justify-between items-center text-[10px] font-mono">
-                <span className="text-zinc-500">Mittelrückstand gesamt:</span>
-                <span className="font-bold text-amber-700">
-                  {formatEuro(Math.max(0, totalFuerderungBeantragt - totalFuerderungEingegangen))}
-                </span>
-              </div>
-            </div>
-
-            {/* PHYSICAL INVOICE ALLOCATION BREAKDOWN */}
-            {catChartData.length > 0 ? (
-              <div className="space-y-2">
-                <div className="flex justify-between items-center px-1">
-                  <span className="text-[10px] font-mono font-extrabold text-zinc-400 uppercase">Beleg-Zuschüsse (Kategorie)</span>
-                  <span className="text-[9px] font-mono text-zinc-500">Max: {formatEuro(sachkosten, 0)}</span>
-                </div>
-                <div className="h-44 bg-zinc-50/50 p-2.5 rounded-xl border border-zinc-150">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={catChartData.slice(0, 4)} layout="vertical" margin={{ top: 5, right: 5, left: -20, bottom: 0 }}>
-                      <XAxis type="number" fontSize={8} stroke="#94A3B8" tickLine={false} tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
-                      <YAxis type="category" dataKey="name" stroke="#041422" fontSize={8} tickLine={false} width={60} />
-                      <Tooltip formatter={(v) => [formatEuro(Number(v), 2), 'Betrag']} />
-                      <Bar 
-                        dataKey="value" 
-                        fill="#BA8B68" 
-                        radius={[0, 3, 3, 0]} 
-                        maxBarSize={10} 
-                        onClick={(data) => {
-                          if (onNavigateDetail && data && data.name) {
-                            onNavigateDetail('rechnungen', { rechnungenKategorie: data.name });
-                          }
-                        }}
-                        className="cursor-pointer hover:opacity-85 transition-opacity"
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center p-6 bg-zinc-50 rounded-xl border border-dashed border-zinc-200 text-center text-xs text-zinc-400">
-                <FileText className="w-8 h-8 text-zinc-300 mb-1.5" />
-                Noch keine Sachkostenrechnungen für diese Periode hinterlegt.
-              </div>
-            )}
-          </div>
-
-          <div className="pt-3 border-t border-zinc-100 flex justify-between items-center font-mono text-[9px]">
-            <span className="text-zinc-500">Liquiditätsprognose:</span>
-            <span className="font-bold text-[#58B49D] uppercase">Valide</span>
-          </div>
-        </div>
-
-        {/* ========================================================= */}
-        {/* WINDOW 3: PROJEKTSTEUERUNG & OPERATIVE TO-DOS (SPALTE 3)   */}
-        {/* ========================================================= */}
-        <div className="bg-white p-5 rounded-3xl border border-zinc-200/80 shadow-xs flex flex-col justify-between space-y-6 md:col-span-2 lg:col-span-1">
-          <div>
-            <div className="flex items-center gap-2 border-b border-zinc-100 pb-3 mb-4">
-              <div className="p-1.5 bg-amber-500 text-zs-blau-schwarz rounded-lg">
-                <CheckSquare className="w-4 h-4" />
-              </div>
-              <div>
-                <span className="text-[9px] text-zinc-400 font-mono block tracking-wider uppercase">Operatives Controlling</span>
-                <h3 className="font-display font-black text-xs text-zs-blau-schwarz uppercase">3. Meilensteine &amp; Tasks</h3>
-              </div>
-            </div>
-
-            {/* NEW GRAPH: Task completion progress or Vergabe states */}
-            {tasks.length > 0 ? (
-              <div className="bg-zinc-50/50 p-3.5 rounded-xl border border-zinc-150 mb-5 text-center">
-                <span className="text-[10px] font-mono font-bold text-zinc-500 block mb-2 uppercase">Aufgaben-Reisegrad</span>
-                
-                <div className="h-28 flex items-center justify-center relative">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={taskStatusData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={30}
-                        outerRadius={45}
-                        paddingAngle={3}
-                        dataKey="value"
-                      >
-                        {taskStatusData.map((entry, index) => (
-                          <Cell 
-                            key={`cell-${index}`} 
-                            fill={entry.color} 
-                            onClick={() => {
-                              if (!onNavigateDetail) return;
-                              const statusKey = entry.name === 'Erledigt' ? 'erledigt' : 'offen';
-                              onNavigateDetail('aufgaben', { aufgabenStatus: statusKey });
-                            }}
-                            className="cursor-pointer hover:opacity-80 transition-opacity"
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  {/* Center percentage label */}
-                  <div className="absolute flex flex-col items-center">
-                    <span className="text-sm font-mono font-black text-zs-blau-schwarz">
-                      {tasks.length > 0 ? ((tasksCompletedCount / tasks.length) * 100).toFixed(0) : 0}%
-                    </span>
-                    <span className="text-[7px] text-zinc-400 font-mono uppercase font-bold">Erfüllt</span>
+                  </div>
+                  <div className="font-bold text-xs text-zs-blau-schwarz mt-1">{ach.title}</div>
+                  <p className="text-[11px] text-zinc-500 mt-0.5 leading-snug">{ach.description}</p>
+                  <div className="mt-2 font-mono text-[10px] font-semibold text-zinc-600">
+                    {ach.progressLabel}
                   </div>
                 </div>
-
-                <div className="flex justify-center gap-4 mt-2.5 text-[10px] font-mono">
-                  <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded bg-[#58B49D]"></span> Erledigt ({tasksCompletedCount})
-                  </span>
-                  <span className="flex items-center gap-1">
-                    <span className="w-2 h-2 rounded bg-[#D04C3D]"></span> Offen ({tasksOpenCount})
-                  </span>
-                </div>
-              </div>
-            ) : (
-              <div className="bg-zinc-50/50 p-4 rounded-xl border border-zinc-150 mb-5 text-center text-xs text-zinc-400">
-                <ListTodo className="w-6 h-6 text-zinc-300 mx-auto mb-1.5" />
-                Übergeordnetes Steuerungsorgan: Keine Aufgaben definiert.
-              </div>
-            )}
-
-            {/* LIVE EDITABLE URGENT TO-DO ACTION COMPONENT */}
-            <div className="space-y-2">
-              <span className="text-[10px] font-mono font-extrabold text-[#D04C3D] uppercase block px-1">Dringende Handlungsaufforderungen</span>
-              
-              <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                {tasks.filter(t => t.status !== 'erledigt').slice(0, 3).length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-6 bg-zinc-50 border border-zinc-200/80 rounded-xl text-zinc-400 font-mono text-[10px] text-center italic">
-                    <CheckCircle2 className="w-6 h-6 text-emerald-500 mb-1" />
-                    Revisionsfreigaben erfolgt &amp; alle Tasks erledigt!
-                  </div>
-                ) : (
-                  tasks.filter(t => t.status !== 'erledigt').slice(0, 3).map((t) => (
-                    <div 
-                      key={t.id} 
-                      className="p-2 bg-zinc-50/70 border border-zinc-200 rounded-lg hover:border-zinc-300 transition-all flex items-start justify-between gap-2.5 text-xs"
-                    >
-                      <div className="flex items-start gap-2 min-w-0">
-                        <button 
-                          onClick={() => handleToggleTask(t.id, t.status)}
-                          className="mt-0.5 text-zinc-400 hover:text-zs-blau-schwarz transition cursor-pointer"
-                          title="Als erledigt kennzeichnen"
-                        >
-                          <div className="w-3.5 h-3.5 rounded-sm border border-zinc-300 hover:border-zs-blau-schwarz bg-white flex items-center justify-center">
-                            <span className="text-[8px] font-black scale-75 opacity-0 hover:opacity-80">✓</span>
-                          </div>
-                        </button>
-                        <div className="min-w-0">
-                          <span className="font-bold text-zinc-800 truncate line-clamp-1 block leading-tight">{t.title}</span>
-                          {t.dueDate && (
-                            <span className="text-[9px] text-[#D04C3D] font-mono flex items-center gap-1 mt-0.5 font-semibold">
-                              <Calendar className="w-2.5 h-2.5 text-[#D04C3D]/60" />
-                              Frist: {t.dueDate}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      {/* Priority badge */}
-                      <span className={`text-[8px] font-mono uppercase font-bold px-1.5 py-0.5 rounded border leading-none shrink-0 ${
-                        t.priority === 'hoch' ? 'bg-red-50 text-red-650 border-red-150' :
-                        t.priority === 'mittel' ? 'bg-amber-50 text-amber-600 border-amber-105' :
-                        'bg-slate-50 text-slate-500 border-slate-105'
-                      }`}>
-                        {t.priority}
-                      </span>
-                    </div>
-                  ))
-                )}
-              </div>
+              ))}
             </div>
-
           </div>
-
-          <div className="pt-3 border-t border-zinc-100 flex items-center justify-between font-mono text-[9px] text-zinc-500">
-            <span>Meilensteine gesamt (WIN.DN):</span>
-            <span className="font-bold text-zs-blau-schwarz">{activeUseCasesCount} Use-Cases aktiv</span>
           </div>
         </div>
-
-      </div>
-
+      )}
     </div>
   );
 }

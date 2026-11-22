@@ -12,3 +12,10 @@ coverage/
 # Generierte Offline-Single-File-Builds (Artefakt von npm run build)
 MiD-PCT_Dashboard_OFFLINE.html
 src/MiD-PCT_Dashboard_OFFLINE.html
+
+# Generierte Offline-Single-File-Builds (Build-Artefakt)
+MiD-PCT_Dashboard_OFFLINE.html
+src/MiD-PCT_Dashboard_OFFLINE.html
+
+# bun lockfile (Projekt nutzt npm)
+bun.lock

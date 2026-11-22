@@ -1,518 +1,1222 @@
-import React, { useState } from 'react';
-import { Mittelabruf } from '../../types';
-import { formatEuro, formatDate } from '../../utils';
-import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
+import React, { useState, useMemo, useEffect } from 'react';
+import {
+  Mittelabruf,
+  PersonalEintrag,
+  Rechnungsbeleg,
+  Zahlungsanforderung,
+  ProfiPositionAmounts,
+  ProfiPositionCode,
+  MitarbeiterStamm,
+  SystemSettings,
+} from '../../types';
+import { DEFAULT_SETTINGS } from '../../data';
+import {
+  formatEuro,
+  formatDate,
+  PROFI_STARK_FKZ,
+  PROFI_POSITIONEN,
+  BUNDESANTEIL_QUOTE,
+  createEmptyProfiAmounts,
+  normalizeProfiAmounts,
+  mapKategorieToProfiPosition,
+  splitPersonalToProfi,
+  getFoerderfaehigerRechnungsBetrag,
+  validateZaChain,
+  addEuro,
+  subEuro,
+  sumEuro,
+  mulPercent,
+  roundEuro,
+  downloadCSV,
+  computeBossEventKassenschluss,
+  recordBackupTimestamp,
+} from '../../utils';
+import {
+  Plus,
+  Copy,
+  Check,
+  Calculator,
+  Trash2,
+  Download,
+  AlertTriangle,
+  Clock,
+  ShieldAlert,
+  CheckCircle2,
+  ArrowLeft,
+  Trophy,
+  DownloadCloud,
+} from 'lucide-react';
+
+export type MittelabrufeSubTab = 'za-rechner' | 'abrufe';
+export type AbrufStatusFilter = 'all' | 'open' | 'paid';
 
 interface MittelabrufePageProps {
   mittelabrufe: Mittelabruf[];
+  personal: PersonalEintrag[];
+  rechnungen: Rechnungsbeleg[];
+  zas: Zahlungsanforderung[];
+  mitarbeiterStamm?: MitarbeiterStamm[];
+  settings?: SystemSettings;
   activeYear: string | null;
   activeYearLabel: string;
   onAddMittelabruf: (abruf: Omit<Mittelabruf, 'id'>) => void;
-  onUpdateMittelabrufStatus: (id: number, newStatus: Mittelabruf['status']) => void;
+  onUpdateMittelabrufStatus: (id: number, status: Mittelabruf['status']) => void;
+  onSaveZa: (za: Omit<Zahlungsanforderung, 'id'> | Zahlungsanforderung) => void;
+  onDeleteZa: (id: number) => void;
   initialGeber?: string;
-  onGeberChange?: (geber: string) => void;
+  onGeberChange?: (g: string) => void;
+  initialSubTab?: MittelabrufeSubTab;
+  onSubTabChange?: (t: MittelabrufeSubTab) => void;
+  initialStatusFilter?: AbrufStatusFilter;
+  onStatusFilterChange?: (s: AbrufStatusFilter) => void;
+  onBackToCockpit?: () => void;
+  onQuickBackupSnapshot?: () => void;
+  onNavigateToRechnungen?: () => void;
 }
 
 export default function MittelabrufePage({
   mittelabrufe,
+  personal,
+  rechnungen,
+  zas,
+  mitarbeiterStamm = [],
+  settings = DEFAULT_SETTINGS,
   activeYear,
   activeYearLabel,
   onAddMittelabruf,
   onUpdateMittelabrufStatus,
-  initialGeber = 'all',
-  onGeberChange,
+  onSaveZa,
+  onDeleteZa,
+  initialSubTab = 'za-rechner',
+  onSubTabChange,
+  initialStatusFilter = 'all',
+  onStatusFilterChange,
+  onBackToCockpit,
+  onQuickBackupSnapshot,
+  onNavigateToRechnungen,
 }: MittelabrufePageProps) {
-  // Local states
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [activeDropdownId, setActiveDropdownId] = useState<number | null>(null);
+  const [subTab, setSubTab] = useState<MittelabrufeSubTab>(initialSubTab);
+  const [statusFilter, setStatusFilter] = useState<AbrufStatusFilter>(initialStatusFilter);
+  const [backupRefreshTick, setBackupRefreshTick] = useState(0);
 
-  // Filter geber state
-  const [filterGeber, setFilterGeber] = useState(initialGeber === 'all' ? '' : initialGeber);
+  useEffect(() => {
+    setSubTab(initialSubTab);
+  }, [initialSubTab]);
 
-  React.useEffect(() => {
-    if (initialGeber !== undefined) {
-      setFilterGeber(initialGeber === 'all' ? '' : initialGeber);
-    }
-  }, [initialGeber]);
+  useEffect(() => {
+    setStatusFilter(initialStatusFilter);
+  }, [initialStatusFilter]);
 
-  // Kassenschluss Checklist items (Priority 1)
-  const [checklist, setChecklist] = useState([
-    { id: 1, text: 'Arbeitgeberkosten (Lohnbelege) im IST-Verzeichnis vollständig abgeglichen', completed: true },
-    { id: 2, text: 'Sachkostenbelege und Rechnungen auf BAFA-Konformität geprüft (Netto, Sachbericht vorhanden)', completed: true },
-    { id: 3, text: 'Einhaltung der 10%-Obergrenze für die Pauschale geprüft', completed: false },
-    { id: 4, text: 'Vergabegrenzen und BAFA-Freigaben für Transformations-Booster kontrolliert', completed: false },
-    { id: 5, text: 'Mittelabruf-Formular vollständig ausgefüllt und von WIN.DN GmbH Geschäftsführung unterzeichnet', completed: false },
-    { id: 6, text: 'LHO (Landesanteil 7,5%) parallel bei der Landeshauptkasse beantragt', completed: false },
-  ]);
+  const sortedZas = useMemo(
+    () => [...zas].sort((a, b) => a.datum.localeCompare(b.datum) || a.id - b.id),
+    [zas]
+  );
 
-  // Form states
-  const [maNr, setMaNr] = useState('');
-  const [maGeber, setMaGeber] = useState<'BAFA_BUND' | 'LHO_LAND'>('BAFA_BUND');
-  const [maVon, setMaVon] = useState('');
-  const [maBis, setMaBis] = useState('');
-  const [maBean, setMaBean] = useState('');
-  const [maEing, setMaEing] = useState('');
-  const [maQ, setMaQ] = useState(4);
-  const [maStatus, setMaStatus] = useState<Mittelabruf['status']>('ENTWURF');
+  const zaValidationMap = useMemo(() => validateZaChain(zas), [zas]);
+  const gamificationEnabled = settings.gamificationMode !== false;
 
-  const now = new Date();
-  const currentYear = now.getFullYear();
-  const deadlineDate = new Date(currentYear, 10, 15); // Nov 15th
-  const daysLeft = Math.ceil((deadlineDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+  const bossEvent = useMemo(
+    () => {
+      void backupRefreshTick;
+      return computeBossEventKassenschluss({ zas, rechnungen, targetYear: 2026 });
+    },
+    [zas, rechnungen, backupRefreshTick]
+  );
 
-  // Filtration based on global year and Mittelgeber
-  const filteredAbrufe = mittelabrufe.filter((a) => {
-    if (activeYear) {
-      if (activeYear === 'gesamt25' && a.foerderjahr !== 2025) return false;
-      if (activeYear === 'mrz29' && a.foerderjahr !== 2029) return false;
-      if (activeYear !== 'gesamt25' && activeYear !== 'mrz29' && String(a.foerderjahr) !== String(activeYear)) return false;
-    }
-    if (filterGeber && a.mittelgeber !== filterGeber) return false;
-    return true;
-  });
-
-  const totBeantragt = filteredAbrufe.reduce((s, a) => s + a.beantragt, 0);
-  const totEingegangen = filteredAbrufe.reduce((s, a) => s + a.eingegangen, 0);
-  const pendingFunds = totBeantragt - totEingegangen;
-
-  // Toggle checklist
-  const toggleCheck = (id: number) => {
-    setChecklist(
-      checklist.map((item) =>
-        item.id === id ? { ...item, completed: !item.completed } : item
-      )
-    );
+  const handleQuickBackupAction = () => {
+    recordBackupTimestamp();
+    onQuickBackupSnapshot?.();
+    setBackupRefreshTick((t) => t + 1);
+    setSaveMessage('Monatlicher Revisions-Snapshot erstellt („Backup-Wächter“ aktualisiert).');
+    setTimeout(() => setSaveMessage(null), 3000);
   };
 
-  const handleAddSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!maNr.trim()) { alert('Abrufnummer fehlt'); return; }
-    if (!maVon || !maBis) { alert('Zeitraum fehlt'); return; }
-    const beantragtNum = parseFloat(maBean);
-    if (isNaN(beantragtNum) || beantragtNum <= 0) { alert('Beantragter Betrag ungültig'); return; }
+  // ── ZA-RECHNER STATE ──
+  const [selectedZaId, setSelectedZaId] = useState<number | 'new'>(() =>
+    sortedZas.length > 0 ? sortedZas[sortedZas.length - 1].id : 'new'
+  );
+  const [svSharePct, setSvSharePct] = useState<number>(18);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
 
-    const eingegangenNum = parseFloat(maEing) || 0;
+  const activeZa = useMemo(
+    () => (selectedZaId === 'new' ? null : sortedZas.find((z) => z.id === selectedZaId) || null),
+    [sortedZas, selectedZaId]
+  );
 
-    onAddMittelabruf({
-      abrufnummer: maNr.trim(),
-      zeitraumVon: maVon,
-      zeitraumBis: maBis,
-      mittelgeber: maGeber,
-      foerderjahr: Number(activeYear && activeYear !== 'gesamt25' && activeYear !== 'mrz29' ? activeYear : 2025),
-      quartal: Number(maQ),
-      beantragt: beantragtNum,
-      eingegangen: eingegangenNum,
-      differenz: beantragtNum - eingegangenNum,
-      status: maStatus,
+  const [bezeichnung, setBezeichnung] = useState('ZA 46SK0267X · Entwurf');
+  const [kennung, setKennung] = useState('');
+  const [datum, setDatum] = useState(new Date().toISOString().slice(0, 10));
+  const [zeitraumVon, setZeitraumVon] = useState('2026-01-01');
+  const [zeitraumBis, setZeitraumBis] = useState('2026-11-30');
+  const [stichtagIst, setStichtagIst] = useState('2026-09-30');
+  const [spalte2BisherGeplant, setSpalte2BisherGeplant] = useState<number>(0);
+  const [istJePos, setIstJePos] = useState<ProfiPositionAmounts>(createEmptyProfiAmounts);
+  const [vorschauJePos, setVorschauJePos] = useState<ProfiPositionAmounts>(createEmptyProfiAmounts);
+  const [zeile17Zusatz, setZeile17Zusatz] = useState<number>(0);
+  const [auszahlungsDatum, setAuszahlungsDatum] = useState<string>('');
+  const [zaStatus, setZaStatus] = useState<Zahlungsanforderung['status']>('Entwurf');
+  const [notizen, setNotizen] = useState('');
+
+  // Load selected ZA into form
+  useEffect(() => {
+    if (activeZa) {
+      setBezeichnung(activeZa.bezeichnung);
+      setKennung(activeZa.kennung || '');
+      setDatum(activeZa.datum);
+      setZeitraumVon(activeZa.zeitraumVon);
+      setZeitraumBis(activeZa.zeitraumBis);
+      setStichtagIst(activeZa.stichtagIst);
+
+      const val = zaValidationMap[activeZa.id];
+      setSpalte2BisherGeplant(
+        activeZa.spalte2BisherGeplant !== undefined
+          ? activeZa.spalte2BisherGeplant
+          : val?.expectedSpalte2 || 0
+      );
+      setIstJePos(normalizeProfiAmounts(activeZa.istJePosition));
+      setVorschauJePos(normalizeProfiAmounts(activeZa.vorschauJePosition));
+      setZeile17Zusatz(roundEuro(activeZa.zeile17ZusatzVerrechnung || 0));
+      setAuszahlungsDatum(activeZa.auszahlungsDatum || '');
+      setZaStatus(activeZa.status);
+      setNotizen(activeZa.notizen || '');
+    }
+  }, [activeZa, zaValidationMap]);
+
+  // Helper: Auto-Ist aus erfassten 2026+ Belegen mit echter 0812/0817/0820 Trennung & § 15 UStG
+  const computeAutoIstUntil = (cutoffDate: string, fromDate: string): ProfiPositionAmounts => {
+    const res = createEmptyProfiAmounts();
+    const cutoffYear = parseInt(cutoffDate.slice(0, 4), 10) || 2026;
+    const cutoffMonth = parseInt(cutoffDate.slice(5, 7), 10) || 12;
+    const fromYear = parseInt(fromDate.slice(0, 4), 10) || 2026;
+    const fromMonth = parseInt(fromDate.slice(5, 7), 10) || 1;
+
+    const matchingPers = personal.filter((p) => {
+      if (p.jahr < fromYear || p.jahr > cutoffYear) return false;
+      if (p.jahr === fromYear && p.monat < fromMonth) return false;
+      if (p.jahr === cutoffYear && p.monat > cutoffMonth) return false;
+      return true;
     });
 
-    setMaNr('');
-    setMaVon('');
-    setMaBis('');
-    setMaBean('');
-    setMaEing('');
-    setShowAddModal(false);
+    const pSplit = splitPersonalToProfi(matchingPers, svSharePct / 100, mitarbeiterStamm);
+    res['0812'] = pSplit.pos0812;
+    res['0817'] = pSplit.pos0817;
+    res['0820'] = pSplit.pos0820;
+    res['0843'] = pSplit.pos0843Overhead;
+
+    rechnungen.forEach((r) => {
+      const refDate = r.zahlungsdatum || r.rechnungsdatum;
+      if (!refDate) return;
+      if (refDate < fromDate || refDate > cutoffDate) return;
+      const ff = getFoerderfaehigerRechnungsBetrag(r, settings.vorsteuerabzugsberechtigt);
+      if (ff <= 0) return;
+      const pos = mapKategorieToProfiPosition(r.kostenkategorie, r.profiPosition);
+      res[pos] = addEuro(res[pos], ff);
+    });
+
+    return res;
   };
 
-  // Recharts data
-  const chartsData = filteredAbrufe.map((a) => ({
-    name: a.abrufnummer.length > 12 ? `${a.abrufnummer.slice(0, 11)}…` : a.abrufnummer,
-    Beantragt: a.beantragt,
-    Eingegangen: a.eingegangen || 0,
-  }));
+  // Start a new ZA inheriting Spalte 2 = Vor-ZA (Spalte 3 + Spalte 5)
+  const handleStartNewZa = () => {
+    setSelectedZaId('new');
+    const lastZa = sortedZas[sortedZas.length - 1];
+    const inheritedSpalte2 = lastZa
+      ? addEuro(
+          sumEuro(Object.values(lastZa.istJePosition || {})),
+          sumEuro(Object.values(lastZa.vorschauJePosition || {}))
+        )
+      : 0;
 
-  const checkedCount = checklist.filter((x) => x.completed).length;
+    const today = new Date().toISOString().slice(0, 10);
+    const twoMonthsLater = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const yr = today.slice(0, 4);
+    const fromDate = `${yr}-01-01`;
+
+    setBezeichnung(`ZA ${PROFI_STARK_FKZ} · ${formatDate(today)}`);
+    setKennung('');
+    setDatum(today);
+    setZeitraumVon(fromDate);
+    setZeitraumBis(twoMonthsLater);
+    setStichtagIst(today);
+    setSpalte2BisherGeplant(inheritedSpalte2);
+    setIstJePos(computeAutoIstUntil(today, fromDate));
+    setVorschauJePos(createEmptyProfiAmounts());
+    setZeile17Zusatz(0);
+    setAuszahlungsDatum('');
+    setZaStatus('Entwurf');
+    setNotizen('Automatisch auf Basis der Vorgänger-ZA (Spalte 2 vererbt) erstellt.');
+  };
+
+  const handleLoadAutoIst = () => {
+    setIstJePos(computeAutoIstUntil(stichtagIst, zeitraumVon));
+    setSaveMessage('Kumulierte Ist-Werte (0812–0843) aus Personal & Sachbelegen übernommen.');
+    setTimeout(() => setSaveMessage(null), 2600);
+  };
+
+  // Erwartete Spalte 2 aus Vorgänger-ZA (Kettenprüfung)
+  const expectedSpalte2ForCurrent = useMemo(() => {
+    if (selectedZaId === 'new') {
+      const last = sortedZas[sortedZas.length - 1];
+      if (!last) return 0;
+      return addEuro(
+        sumEuro(Object.values(last.istJePosition || {})),
+        sumEuro(Object.values(last.vorschauJePosition || {}))
+      );
+    }
+    const idx = sortedZas.findIndex((z) => z.id === selectedZaId);
+    if (idx <= 0) return 0;
+    const prev = sortedZas[idx - 1];
+    return addEuro(
+      sumEuro(Object.values(prev.istJePosition || {})),
+      sumEuro(Object.values(prev.vorschauJePosition || {}))
+    );
+  }, [selectedZaId, sortedZas]);
+
+  const deltaSpalte2Live = useMemo(
+    () => subEuro(spalte2BisherGeplant, expectedSpalte2ForCurrent),
+    [spalte2BisherGeplant, expectedSpalte2ForCurrent]
+  );
+  const isLiveChainValid = Math.abs(deltaSpalte2Live) <= 0.05;
+
+  // Exakte profi-online Zeilenrechnung (Cent-Integer Arithmetik)
+  const sumIst = useMemo(() => sumEuro(Object.values(istJePos)), [istJePos]);
+  const sumVorschau = useMemo(() => sumEuro(Object.values(vorschauJePos)), [vorschauJePos]);
+
+  const zeile14Anzurechnen = useMemo(
+    () => mulPercent(spalte2BisherGeplant, BUNDESANTEIL_QUOTE * 100),
+    [spalte2BisherGeplant]
+  );
+  const zeile15BundesanteilIst = useMemo(
+    () => mulPercent(sumIst, BUNDESANTEIL_QUOTE * 100),
+    [sumIst]
+  );
+  const zeile16Kassenbestand = useMemo(
+    () => subEuro(zeile14Anzurechnen, zeile15BundesanteilIst),
+    [zeile14Anzurechnen, zeile15BundesanteilIst]
+  );
+  const zeile18BundesanteilVorschau = useMemo(
+    () => mulPercent(sumVorschau, BUNDESANTEIL_QUOTE * 100),
+    [sumVorschau]
+  );
+  const zeile19Angefordert = useMemo(
+    () => Math.max(0, subEuro(subEuro(zeile18BundesanteilVorschau, zeile16Kassenbestand), zeile17Zusatz)),
+    [zeile18BundesanteilVorschau, zeile16Kassenbestand, zeile17Zusatz]
+  );
+
+  const handleSaveCurrentZa = (e: React.FormEvent) => {
+    e.preventDefault();
+    const payload: Omit<Zahlungsanforderung, 'id'> = {
+      bezeichnung: bezeichnung.trim() || `ZA ${datum}`,
+      kennung: kennung.trim() || undefined,
+      datum,
+      zeitraumVon,
+      zeitraumBis,
+      stichtagIst,
+      spalte2BisherGeplant: roundEuro(spalte2BisherGeplant),
+      istJePosition: normalizeProfiAmounts(istJePos),
+      vorschauJePosition: normalizeProfiAmounts(vorschauJePos),
+      kassenbestand: zeile16Kassenbestand,
+      erhalteneBundesmittel: zeile14Anzurechnen,
+      zeile14BisherAnzurechnen: zeile14Anzurechnen,
+      zeile17ZusatzVerrechnung: roundEuro(zeile17Zusatz),
+      auszahlungsDatum: auszahlungsDatum || null,
+      bundesanteilQuote: BUNDESANTEIL_QUOTE,
+      zeile19Anforderung: zeile19Angefordert,
+      belegVollstaendig: true,
+      manuelleKorrektur: !isLiveChainValid,
+      notizen: notizen.trim(),
+      pdfHash: activeZa?.pdfHash,
+      status: zaStatus,
+    };
+
+    if (activeZa) {
+      onSaveZa({ ...payload, id: activeZa.id });
+    } else {
+      onSaveZa(payload);
+    }
+    setSaveMessage('Zahlungsanforderung GoBD-konform im System gespeichert.');
+    setTimeout(() => setSaveMessage(null), 2600);
+  };
+
+  const handleCopyProfiSummary = () => {
+    const lines = [
+      `PROFI-ONLINE ZAHLUNGSANFORDERUNG (FKZ ${PROFI_STARK_FKZ})`,
+      `Bezeichnung: ${bezeichnung}${kennung ? ` | Kennung: ${kennung}` : ''}`,
+      `ZA-Datum: ${formatDate(datum)} | Zeitraum: ${formatDate(zeitraumVon)} – ${formatDate(zeitraumBis)}`,
+      `------------------------------------------------------------------------`,
+      `Spalte 2 (Bisher im Haushaltsjahr geplant/abger.): ${formatEuro(spalte2BisherGeplant, 2)}`,
+      `Spalte 3 (Kumulierte Ist-Ausgaben bis ${formatDate(stichtagIst)}): ${formatEuro(sumIst, 2)}`,
+      ...PROFI_POSITIONEN.map(
+        (p) =>
+          `  Pos. ${p.displayCode} (${p.kurzBezeichnung}): Sp.3 Ist = ${formatEuro(istJePos[p.code], 2)} | Sp.5 Vorschau = ${formatEuro(vorschauJePos[p.code], 2)}`
+      ),
+      `Spalte 5 (Geplante Ausgaben Zweimonats-Vorschau): ${formatEuro(sumVorschau, 2)}`,
+      `------------------------------------------------------------------------`,
+      `Zeile 14 (Bisher anzurechnen, 90 % von Spalte 2): ${formatEuro(zeile14Anzurechnen, 2)}`,
+      `Zeile 15 (90 % Bundesanteil aus Spalte 3 Ist):    ${formatEuro(zeile15BundesanteilIst, 2)}`,
+      `Zeile 16 (Derzeitiger Kassenbestand Z.14 - Z.15): ${formatEuro(zeile16Kassenbestand, 2)}`,
+      `Zeile 17 (Zusätzlich zu verrechnen):              ${formatEuro(zeile17Zusatz, 2)}`,
+      `Zeile 18 (90 % Bundesanteil aus Spalte 5 Vorschau):${formatEuro(zeile18BundesanteilVorschau, 2)}`,
+      `Zeile 19 (ANGEFORDERTE BUNDESMITTEL):             ${formatEuro(zeile19Angefordert, 2)}`,
+    ];
+    navigator.clipboard.writeText(lines.join('\n'));
+    setCopiedId('za');
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  // ── TAB 2: KLASSISCHE MITTELABRUFE ──
+  const [showNewAbrufModal, setShowNewAbrufModal] = useState(false);
+  const [abrufNummer, setAbrufNummer] = useState('');
+  const [abrufVon, setAbrufVon] = useState('2026-01-01');
+  const [abrufBis, setAbrufBis] = useState('2026-03-31');
+  const [abrufJahr, setAbrufJahr] = useState(2026);
+  const [abrufQuartal, setAbrufQuartal] = useState(1);
+  const [abrufBeantragt, setAbrufBeantragt] = useState('');
+
+  const filteredAbrufe = useMemo(() => {
+    return mittelabrufe.filter((a) => {
+      if (activeYear) {
+        if (activeYear === 'gesamt25' && a.foerderjahr !== 2025) return false;
+        if (activeYear === 'mrz29' && a.foerderjahr !== 2029) return false;
+        if (activeYear !== 'gesamt25' && activeYear !== 'mrz29' && String(a.foerderjahr) !== activeYear)
+          return false;
+      }
+      if (statusFilter === 'open') return (a.differenz || 0) > 0.01 || a.status !== 'ARCHIVIERT';
+      if (statusFilter === 'paid') return a.status === 'ARCHIVIERT' || (a.eingegangen || 0) >= (a.beantragt || 0);
+      return true;
+    });
+  }, [mittelabrufe, activeYear, statusFilter]);
+
+  const handleAbrufSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = parseFloat(abrufBeantragt) || 0;
+    onAddMittelabruf({
+      abrufnummer: abrufNummer.trim() || `BAFA-${abrufJahr}-Q${abrufQuartal}`,
+      zeitraumVon: abrufVon,
+      zeitraumBis: abrufBis,
+      mittelgeber: 'BAFA_BUND',
+      foerderjahr: abrufJahr,
+      quartal: abrufQuartal,
+      beantragt: roundEuro(val),
+      eingegangen: 0,
+      differenz: roundEuro(val),
+      status: 'EINGEREICHT',
+    });
+    setAbrufNummer('');
+    setAbrufBeantragt('');
+    setShowNewAbrufModal(false);
+  };
+
+  const activeZaValidation = activeZa ? zaValidationMap[activeZa.id] : null;
 
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
+          {onBackToCockpit && (
+            <button
+              onClick={onBackToCockpit}
+              className="text-xs font-mono text-zinc-500 hover:text-zs-blau-schwarz flex items-center gap-1 mb-1 cursor-pointer"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Zurück zum Cockpit</span>
+            </button>
+          )}
           <h1 className="font-display text-3xl font-extrabold text-zs-blau-schwarz tracking-tight">
-            Mittel<span className="bg-zs-signal-gelb px-1 py-0.5 rounded">abrufe</span>
+            profi-online ZA &amp; Mittelabrufe
           </h1>
           <p className="text-xs font-mono text-zinc-500 mt-1">
-            Einreichung BAFA (Bundeskasse Halle) &amp; LHO (Landeshauptkasse NRW) &middot; {activeYearLabel}
+            FKZ {PROFI_STARK_FKZ} &middot; 90 % Bund / 10 % Eigenanteil &middot; {activeYearLabel}
           </p>
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="px-5 py-2 text-xs font-bold rounded-full bg-zs-signal-gelb text-zs-blau-schwarz hover:bg-zs-blau-schwarz hover:text-zs-signal-gelb transition-all shadow-xs cursor-pointer self-start sm:self-auto"
-        >
-          + Abruf registrieren
-        </button>
+
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <div className="inline-flex items-center gap-1 p-1 bg-zinc-200/70 rounded-lg border border-zinc-200">
+            <button
+              onClick={() => {
+                setSubTab('za-rechner');
+                onSubTabChange?.('za-rechner');
+              }}
+              className={`px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                subTab === 'za-rechner'
+                  ? 'bg-white text-zs-blau-schwarz shadow-xs'
+                  : 'text-zinc-600 hover:text-zs-blau-schwarz'
+              }`}
+            >
+              ZA-Rechner ({sortedZas.length})
+            </button>
+            <button
+              onClick={() => {
+                setSubTab('abrufe');
+                onSubTabChange?.('abrufe');
+              }}
+              className={`px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors cursor-pointer ${
+                subTab === 'abrufe'
+                  ? 'bg-white text-zs-blau-schwarz shadow-xs'
+                  : 'text-zinc-600 hover:text-zs-blau-schwarz'
+              }`}
+            >
+              Mittelabrufe ({mittelabrufe.length})
+            </button>
+          </div>
+        </div>
       </div>
 
-      {/* Kassenschluss Banner & Countdown Widget */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Countdown Box */}
-        <div className="bg-[#BA8B68]/10 border border-zs-papier-braun/25 p-5 rounded-2xl flex flex-col justify-between">
-          <div>
-            <div className="flex justify-between items-center">
-              <span className="text-[10px] font-mono font-bold text-zinc-500 tracking-wider">JÄHRLICHER KASSENSCHLUSS</span>
-              <span className="text-[10px] font-mono bg-zs-papier-braun text-white font-bold px-2 py-0.5 rounded">15. November</span>
-            </div>
-            <div className="text-5xl font-mono font-black text-zs-papier-braun mt-4 tracking-tighter">
-              {daysLeft > 0 ? `${daysLeft} Tage` : 'Frist fällig'}
-            </div>
-            <p className="text-xs text-zinc-600 mt-2 leading-relaxed">
-              Bis zum 15. November müssen alle Lohnbelege und Sachkosten-Quittungen beim Prüfverfahren eingegangen sein.
-            </p>
-          </div>
-          {daysLeft <= 30 && daysLeft > 0 && (
-            <div className="mt-4 px-3 py-2 bg-red-100 border border-red-300 rounded-lg text-xs font-mono font-bold text-red-700 animate-pulse">
-              ⚠️ DRINGLICH: Weniger als 30 Tage verbleibend!
-            </div>
-          )}
-        </div>
-
-        {/* Priority 1 Checklist */}
-        <div className="bg-white p-5 rounded-2xl border border-zinc-200 shadow-xs lg:col-span-2">
-          <div className="flex justify-between items-center mb-3">
-            <h3 className="text-xs font-mono font-bold tracking-wider text-zinc-400 uppercase">
-              Checkliste Kassenschluss-Vorbereitung (15. Nov.)
-            </h3>
-            <span className="text-xs font-mono font-bold text-zs-textil-gruen bg-zs-textil-gruen/10 px-2 py-0.5 rounded">
-              {checkedCount} / {checklist.length} abgearbeitet
-            </span>
-          </div>
-
-          <div className="space-y-2 max-h-52 overflow-y-auto pr-2">
-            {checklist.map((item) => (
-              <div
-                key={item.id}
-                onClick={() => toggleCheck(item.id)}
-                className={`flex gap-3 text-xs items-start p-2.5 rounded-lg border cursor-pointer select-none transition-all ${
-                  item.completed
-                    ? 'bg-zinc-50 border-zinc-150 text-zinc-400'
-                    : 'bg-white border-zinc-200 text-zs-blau-schwarz hover:border-zinc-300'
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  checked={item.completed}
-                  onChange={() => {}} // toggled on container tap
-                  className="w-4 h-4 rounded border-zinc-300 text-zs-blau-schwarz focus:ring-zs-blau-schwarz mt-0.5 cursor-pointer"
-                />
-                <span className={item.completed ? 'line-through text-zinc-400' : 'font-medium'}>
-                  {item.text}
-                </span>
+      {subTab === 'za-rechner' ? (
+        <div className="space-y-5">
+          {/* Boss-Event: Operation Kassenschluss 15. November / Jahresabschluss-Prüfung */}
+          <div
+            className={`rounded-xl border p-5 space-y-4 ${
+              gamificationEnabled
+                ? 'bg-[#041422] text-white border-[#1b3145]'
+                : 'bg-white text-zs-blau-schwarz border-zinc-200'
+            }`}
+          >
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  {gamificationEnabled && <Trophy className="w-4 h-4 text-zs-signal-gelb shrink-0" />}
+                  <h2 className="font-display font-bold text-sm tracking-tight">
+                    {gamificationEnabled
+                      ? `Operation Kassenschluss ${bossEvent.targetYear} (Stichtag 15. November)`
+                      : `Jahresabschluss-Prüfung ${bossEvent.targetYear} (Frist 15. November)`}
+                  </h2>
+                </div>
+                <p className={`text-[11px] font-mono mt-1 tabular-nums ${gamificationEnabled ? 'text-zinc-300' : 'text-zinc-500'}`}>
+                  {bossEvent.daysUntilClose >= 0
+                    ? `Noch ${bossEvent.daysUntilClose} Tage bis Kassenschluss ${formatDate(bossEvent.deadlineDate)}`
+                    : `Stichtag ${formatDate(bossEvent.deadlineDate)} erreicht`}
+                  {' · '}Fortschritt: <strong>{bossEvent.progressPct} %</strong>
+                  {bossEvent.trophyUnlocked && (
+                    <span className={gamificationEnabled ? ' · text-zs-signal-gelb font-bold' : ' · text-emerald-700 font-bold'}>
+                      {' · '}{gamificationEnabled ? 'Jahresabschluss-Trophäe freigeschaltet' : 'Alle 3 Prüfschritte erfüllt'}
+                    </span>
+                  )}
+                </p>
               </div>
-            ))}
-          </div>
-        </div>
-      </div>
 
-      {/* stats and chart */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="space-y-4">
-          <div className="bg-white p-5 rounded-2xl border border-zinc-200">
-            <div className="text-[10px] font-mono text-zinc-400">BEANTRAGT IN PERIODE</div>
-            <div className="text-2xl font-mono font-bold text-zs-blau-schwarz mt-1">
-              {formatEuro(totBeantragt, 2)}
-            </div>
-          </div>
-          <div className="bg-white p-5 rounded-2xl border border-zinc-200">
-            <div className="text-[10px] font-mono text-zinc-400 font-semibold text-zs-textil-gruen">EINGEGANGEN</div>
-            <div className="text-2xl font-mono font-bold text-zs-textil-gruen mt-1">
-              {formatEuro(totEingegangen, 2)}
-            </div>
-          </div>
-          <div className="bg-white p-5 rounded-2xl border border-zinc-200">
-            <div className="text-[10px] font-mono text-zinc-400 font-semibold text-amber-500">AUSSTEHENDER BETRAG</div>
-            <div className="text-2xl font-mono font-bold text-amber-500 mt-1">
-              {formatEuro(pendingFunds, 2)}
-            </div>
-          </div>
-        </div>
-
-        <div className="bg-white p-5 rounded-2xl border border-zinc-200 shadow-xs lg:col-span-2">
-          <h3 className="text-xs font-mono font-bold tracking-wider text-zinc-400 uppercase mb-4">Beantragter vs. Eingegangener Cashflow (Prüfzyklus)</h3>
-          <div className="h-64">
-            {chartsData.length === 0 ? (
-              <div className="h-full flex items-center justify-center font-mono text-xs text-zinc-400">Keine Daten vorhanden</div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartsData} margin={{ left: -15, right: 10 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E5E7EB" />
-                  <XAxis dataKey="name" fontSize={10} stroke="#9CA3AF" />
-                  <YAxis fontSize={9} stroke="#9CA3AF" tickFormatter={(v) => `${(v/1000).toFixed(0)}k €`} />
-                  <Tooltip formatter={(v) => [formatEuro(Number(v), 2), '']} />
-                  <Legend wrapperStyle={{ fontSize: 11 }} />
-                  <Bar dataKey="Beantragt" fill="#041422" radius={[4, 4, 0, 0]} maxBarSize={30} />
-                  <Bar dataKey="Eingegangen" fill="#58B49D" radius={[4, 4, 0, 0]} maxBarSize={30} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Interactive Mittelgeber Filter row */}
-      <div className="bg-white p-4 rounded-xl border border-zinc-200 flex flex-wrap gap-4 items-center justify-between">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs font-mono font-bold text-zinc-400 uppercase">Mittelgeber filtern:</span>
-          <div className="flex flex-wrap gap-1">
-            {[
-              { key: 'all', label: 'Alle Mittelgeber' },
-              { key: 'BAFA_BUND', label: 'BAFA Bund (90%)' },
-              { key: 'LHO_LAND', label: 'LHO NRW (7.5%)' },
-            ].map((g) => {
-              const isSelected = (g.key === 'all' && !filterGeber) || filterGeber === g.key;
-              return (
+              <div className="flex flex-wrap items-center gap-2">
+                {onNavigateToRechnungen && (
+                  <button
+                    type="button"
+                    onClick={onNavigateToRechnungen}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border cursor-pointer transition-colors ${
+                      gamificationEnabled
+                        ? 'border-white/20 text-white hover:bg-white/10'
+                        : 'border-zinc-200 text-zs-blau-schwarz hover:bg-zinc-50'
+                    }`}
+                  >
+                    Q3/Q4-Belege prüfen
+                  </button>
+                )}
                 <button
-                  key={g.key}
-                  onClick={() => {
-                    const nextVal = g.key === 'all' ? '' : g.key;
-                    setFilterGeber(nextVal);
-                    if (onGeberChange) {
-                      onGeberChange(g.key);
-                    }
-                  }}
-                  className={`px-3 py-1 text-xs font-mono font-semibold rounded-full border transition-all cursor-pointer ${
-                    isSelected
-                      ? 'bg-zs-blau-schwarz text-white border-zs-blau-schwarz'
-                      : 'bg-zinc-50 border-zinc-200 text-zinc-650 hover:bg-zinc-100'
+                  type="button"
+                  onClick={handleQuickBackupAction}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors ${
+                    gamificationEnabled
+                      ? 'bg-zs-signal-gelb text-zs-blau-schwarz hover:bg-[#e8e800]'
+                      : 'bg-zs-blau-schwarz text-white hover:bg-[#08243d]'
                   }`}
                 >
-                  {g.label}
+                  <DownloadCloud className="w-3.5 h-3.5" />
+                  <span>Monats-Snapshot sichern</span>
                 </button>
-              );
-            })}
-          </div>
-        </div>
-        {filterGeber && (
-          <button
-            onClick={() => {
-              setFilterGeber('');
-              if (onGeberChange) {
-                onGeberChange('all');
-              }
-            }}
-            className="text-[10px] font-mono font-bold text-[#D04C3D] hover:underline flex items-center gap-1 bg-red-50 px-2 py-1 rounded border border-red-200/50 cursor-pointer"
-          >
-            ✕ Filter aufheben
-          </button>
-        )}
-      </div>
+              </div>
+            </div>
 
-      {/* Tabular view of Abrufe */}
-      <div className="bg-white rounded-2xl border border-zinc-200 shadow-xs overflow-hidden">
-        <div className="p-5 border-b border-zinc-100 flex justify-between items-center bg-zinc-50/50">
-          <span className="font-mono text-xs font-bold text-zinc-400 uppercase tracking-wider">Ergebnisliste</span>
-          <span className="text-xs text-zinc-500 font-mono">{filteredAbrufe.length} drawings found</span>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-[10px] text-zinc-400 tracking-wider">
-                <th className="p-3 pl-5">Abrufnummer</th>
-                <th className="p-3">Zeitraum</th>
-                <th className="p-3">Mittelgeber</th>
-                <th className="p-3 text-center">Periode</th>
-                <th className="p-3 text-right">Beantragt €</th>
-                <th className="p-3 text-right">Eingegangen €</th>
-                <th className="p-3 text-right">Differenz €</th>
-                <th className="p-3 text-center">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredAbrufe.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="p-8 text-center text-xs text-zinc-400 font-mono">
-                    Keine Mittelabrufe registriert für {activeYearLabel}.
-                  </td>
-                </tr>
-              ) : (
-                filteredAbrufe.map((a) => {
-                  const isBafa = a.mittelgeber === 'BAFA_BUND';
+            <div className={`w-full h-1.5 rounded-full overflow-hidden ${gamificationEnabled ? 'bg-white/10' : 'bg-zinc-100'}`}>
+              <div
+                className={`h-full transition-all duration-500 ${
+                  bossEvent.trophyUnlocked
+                    ? 'bg-emerald-500'
+                    : gamificationEnabled
+                    ? 'bg-zs-signal-gelb'
+                    : 'bg-zs-blau-schwarz'
+                }`}
+                style={{ width: `${bossEvent.progressPct}%` }}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+              {bossEvent.phases.map((phase) => (
+                <div
+                  key={phase.id}
+                  className={`p-3 rounded-lg border ${
+                    phase.completed
+                      ? gamificationEnabled
+                        ? 'bg-emerald-950/50 border-emerald-500/40 text-emerald-100'
+                        : 'bg-emerald-50 border-emerald-200 text-emerald-950'
+                      : gamificationEnabled
+                      ? 'bg-white/5 border-white/10 text-zinc-200'
+                      : 'bg-zinc-50 border-zinc-200 text-zinc-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 font-bold text-[11px]">
+                    <span>{gamificationEnabled ? phase.title : phase.cleanTitle}</span>
+                    {phase.completed ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    ) : (
+                      <Clock className="w-4 h-4 opacity-50 shrink-0" />
+                    )}
+                  </div>
+                  <p className={`text-[11px] mt-1 leading-snug ${gamificationEnabled ? 'text-zinc-300' : 'text-zinc-500'}`}>
+                    {phase.description}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+          {/* Linke Spalte: Historische ZAs & Ketten-Validierung */}
+          <div className="xl:col-span-4 space-y-4">
+            <div className="bg-white rounded-xl border border-zinc-200 p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="font-display font-bold text-sm text-zs-blau-schwarz">
+                  ZA-Historie &amp; Kette
+                </h2>
+                <button
+                  onClick={handleStartNewZa}
+                  className="px-3 py-1.5 text-xs font-bold rounded-lg bg-zs-blau-schwarz text-white hover:bg-[#08243d] flex items-center gap-1 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5 text-zs-signal-gelb" />
+                  <span>Neue ZA</span>
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                {sortedZas.map((z) => {
+                  const val = zaValidationMap[z.id];
+                  const isSel = selectedZaId === z.id;
                   return (
-                    <tr key={a.id} className="border-b border-zinc-100 hover:bg-zinc-50/50 transition-colors">
-                      <td className="p-3 pl-5 font-mono text-xs font-bold text-zs-blau-schwarz">{a.abrufnummer}</td>
-                      <td className="p-3 text-xs text-zinc-600">{formatDate(a.zeitraumVon)} – {formatDate(a.zeitraumBis)}</td>
-                      <td className="p-3 text-xs">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-semibold ${
-                          isBafa ? 'bg-[#041422]/10 text-zs-blau-schwarz' : 'bg-[#BA8B68]/15 text-[#7a4a1e]'
-                        }`}>
-                          {isBafa ? 'BAFA (Mitte)' : 'LHO (Düsseldorf)'}
+                    <div
+                      key={z.id}
+                      onClick={() => setSelectedZaId(z.id)}
+                      className={`p-3 rounded-xl border transition-all cursor-pointer ${
+                        isSel
+                          ? 'border-zs-blau-schwarz bg-[#041422]/[0.03]'
+                          : 'border-zinc-200 hover:border-zinc-300 bg-white'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="font-bold text-xs text-zs-blau-schwarz truncate">
+                            {z.bezeichnung}
+                          </div>
+                          <div className="text-[10px] font-mono text-zinc-500 mt-0.5">
+                            {formatDate(z.datum)}
+                            {z.kennung ? ` · Kennung ${z.kennung}` : ''}
+                          </div>
+                        </div>
+                        <span className="font-mono text-xs font-bold text-zs-blau-schwarz tabular-nums shrink-0">
+                          {formatEuro(z.zeile19Anforderung, 2)}
                         </span>
-                      </td>
-                      <td className="p-3 text-xs text-center font-mono">Q{a.quartal} &middot; {a.foerderjahr}</td>
-                      <td className="p-3 text-xs text-right font-mono font-medium">{formatEuro(a.beantragt, 2)}</td>
-                      <td className="p-3 text-xs text-right font-mono font-bold text-zs-textil-gruen">{formatEuro(a.eingegangen || 0, 2)}</td>
-                      <td className={`p-3 text-xs text-right font-mono font-medium ${a.differenz > 0 ? 'text-amber-600' : 'text-zinc-600'}`}>{formatEuro(a.differenz, 2)}</td>
-                      <td className="p-3 text-center text-xs relative">
-                        <button
-                          onClick={() => setActiveDropdownId(activeDropdownId === a.id ? null : a.id)}
-                          className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold font-mono tracking-wider transition-all border cursor-pointer ${
-                            a.status === 'EINGEREICHT' ? 'bg-[#58B49D]/10 text-[#2a7060] border-[#58B49D]/35' :
-                            a.status === 'IN_PRUEFUNG' ? 'bg-[#7F6DBA]/10 text-[#54468f] border-[#7F6DBA]/35' :
-                            a.status === 'ARCHIVIERT' ? 'bg-zinc-100 text-zinc-600 border-zinc-200' :
-                            'bg-amber-100 text-amber-700 border-amber-200'
+                      </div>
+
+                      <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] font-mono">
+                        <span
+                          className={`px-1.5 py-0.5 rounded font-semibold ${
+                            z.status === 'Abgerechnet'
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : z.status === 'Eingereicht'
+                              ? 'bg-sky-50 text-sky-800'
+                              : 'bg-zinc-100 text-zinc-700'
                           }`}
                         >
-                          {a.status} &nbsp;▾
-                        </button>
-
-                        {/* Dropdown overlay */}
-                        {activeDropdownId === a.id && (
-                          <>
-                            <div className="fixed inset-0 z-10" onClick={() => setActiveDropdownId(null)}></div>
-                            <div className="absolute right-1/2 translate-x-1/2 mt-1 w-32 bg-white rounded-lg border border-zinc-200 shadow-lg z-20 overflow-hidden font-mono text-xs">
-                              {(['ENTWURF', 'IN_PRUEFUNG', 'EINGEREICHT', 'ARCHIVIERT'] as Mittelabruf['status'][]).map((status) => (
-                                <button
-                                  key={status}
-                                  onClick={() => {
-                                    onUpdateMittelabrufStatus(a.id, status);
-                                    setActiveDropdownId(null);
-                                  }}
-                                  className="w-full text-left px-3 py-2 hover:bg-zs-signal-gelb/30 transition-all cursor-pointer"
-                                >
-                                  {status}
-                                </button>
-                              ))}
-                            </div>
-                          </>
+                          {z.status}
+                        </span>
+                        {val && !val.isChainValid && (
+                          <span className="px-1.5 py-0.5 rounded bg-red-50 text-red-700 font-semibold flex items-center gap-1">
+                            <ShieldAlert className="w-3 h-3" />
+                            Kette Δ {formatEuro(val.deltaSpalte2, 2)}
+                          </span>
                         )}
-                      </td>
-                    </tr>
+                        {val?.hasPositiveKassenbestand && (
+                          <span className="px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 font-semibold flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            Kassenbestand +{formatEuro(val.zeile16Kassenbestand, 2)}
+                          </span>
+                        )}
+                      </div>
+                    </div>
                   );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* ── MODAL: REGISTER DRAWING ── */}
-      {showAddModal && (
-        <div className="fixed inset-0 bg-zs-blau-schwarz/60 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl border border-zinc-200 shadow-2xl max-w-md w-full overflow-hidden animate-fade-in">
-            <div className="p-5 border-b border-zinc-100 flex justify-between items-center bg-zinc-50/30">
-              <h3 className="font-display font-bold text-lg text-zs-blau-schwarz">Mittelabruf registrieren</h3>
-              <button onClick={() => setShowAddModal(false)} className="text-zinc-400 hover:text-zs-blau-schwarz transition-all text-xl font-bold cursor-pointer">✕</button>
+                })}
+              </div>
             </div>
-            <form onSubmit={handleAddSubmit}>
-              <div className="p-6 space-y-4">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Abrufnummer <span className="text-red-500">*</span></label>
+
+            {activeZaValidation?.hasPositiveKassenbestand && (
+              <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 text-xs text-amber-950 space-y-1.5">
+                <div className="font-bold flex items-center gap-1.5">
+                  <Clock className="w-4 h-4 text-amber-700" />
+                  <span>ANBest-P 2-Monats-Verwendungsfrist</span>
+                </div>
+                <p className="text-[11px] leading-relaxed">
+                  Aus dieser ZA verbleibt ein positiver Kassenbestand von{' '}
+                  <strong className="font-mono">{formatEuro(activeZaValidation.zeile16Kassenbestand, 2)}</strong>.
+                  Mittel müssen bis spätestens{' '}
+                  <strong className="font-mono">{formatDate(activeZaValidation.twoMonthDeadline)}</strong>{' '}
+                  zweckentsprechend verausgabt sein.
+                </p>
+              </div>
+            )}
+          </div>
+
+          {/* Rechte Spalte: Vollständiger profi-online ZA-Rechner */}
+          <form onSubmit={handleSaveCurrentZa} className="xl:col-span-8 space-y-5">
+            {!isLiveChainValid && (
+              <div className="bg-red-50 border border-red-300 text-red-900 rounded-xl p-4 flex items-start gap-3 text-xs">
+                <AlertTriangle className="w-4 h-4 text-red-700 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-bold">
+                    ZA-Ketten-Konsistenzwarnung: Spalte 2 weicht von Vorgänger-ZA ab!
+                  </div>
+                  <div className="font-mono text-[11px] mt-1 tabular-nums">
+                    Erwartet (Vor-ZA Sp. 3 + Sp. 5): <strong>{formatEuro(expectedSpalte2ForCurrent, 2)}</strong> |
+                    Eingetragen in Spalte 2: <strong>{formatEuro(spalte2BisherGeplant, 2)}</strong> (Δ{' '}
+                    {formatEuro(deltaSpalte2Live, 2)})
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSpalte2BisherGeplant(expectedSpalte2ForCurrent)}
+                    className="mt-2 px-2.5 py-1 rounded bg-red-700 text-white text-[11px] font-bold hover:bg-red-800 cursor-pointer"
+                  >
+                    Spalte 2 auf {formatEuro(expectedSpalte2ForCurrent, 2)} korrigieren
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="bg-white rounded-xl border border-zinc-200 p-5 space-y-5">
+              {/* Kopfdaten */}
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 pb-4">
+                <div>
+                  <h2 className="font-display font-bold text-lg text-zs-blau-schwarz flex items-center gap-2">
+                    <Calculator className="w-4 h-4 text-[#58B49D]" />
+                    <span>{selectedZaId === 'new' ? 'Neue profi-online Zahlungsanforderung' : bezeichnung}</span>
+                  </h2>
+                  <p className="text-[11px] font-mono text-zinc-500 mt-0.5">
+                    Exakte Spaltenlogik (Sp. 2–5) &amp; Zeilen 14–19 nach BAFA / profi-online
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleLoadAutoIst}
+                    className="px-3 py-1.5 rounded-lg border border-zinc-200 text-xs font-semibold hover:bg-zinc-50 cursor-pointer"
+                  >
+                    Ist-Werte aus Belegen laden
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCopyProfiSummary}
+                    className="px-3 py-1.5 rounded-lg border border-zinc-200 text-xs font-semibold hover:bg-zinc-50 flex items-center gap-1.5 cursor-pointer"
+                  >
+                    {copiedId === 'za' ? <Check className="w-3.5 h-3.5 text-[#58B49D]" /> : <Copy className="w-3.5 h-3.5" />}
+                    <span>{copiedId === 'za' ? 'Kopiert' : 'profi-online Werte kopieren'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Stammdaten Felder */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+                <div className="sm:col-span-2">
+                  <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Bezeichnung</label>
                   <input
                     type="text"
-                    placeholder="z.B. BAFA-2025-Q4-01"
-                    value={maNr}
-                    onChange={(e) => setMaNr(e.target.value)}
-                    className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz bg-white"
-                    required
+                    value={bezeichnung}
+                    onChange={(e) => setBezeichnung(e.target.value)}
+                    className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz"
                   />
                 </div>
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Mittelgeber</label>
+                <div>
+                  <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">profi-online Kennung</label>
+                  <input
+                    type="text"
+                    placeholder="z. B. 3141261-7"
+                    value={kennung}
+                    onChange={(e) => setKennung(e.target.value)}
+                    className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg text-xs font-mono outline-none focus:border-zs-blau-schwarz"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Status</label>
                   <select
-                    value={maGeber}
-                    onChange={(e) => setMaGeber(e.target.value as 'BAFA_BUND' | 'LHO_LAND')}
-                    className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz bg-white"
+                    value={zaStatus}
+                    onChange={(e) => setZaStatus(e.target.value as Zahlungsanforderung['status'])}
+                    className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg text-xs bg-white outline-none focus:border-zs-blau-schwarz"
                   >
-                    <option value="BAFA_BUND">BAFA (Bundeskasse Halle)</option>
-                    <option value="LHO_LAND">LHO Land NRW (Kofinanzierung)</option>
+                    <option value="Entwurf">Entwurf</option>
+                    <option value="Eingereicht">Eingereicht</option>
+                    <option value="Abgerechnet">Abgerechnet</option>
                   </select>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Von</label>
-                    <input
-                      type="date"
-                      value={maVon}
-                      onChange={(e) => setMaVon(e.target.value)}
-                      className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz bg-white"
-                      required
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Bis</label>
-                    <input
-                      type="date"
-                      value={maBis}
-                      onChange={(e) => setMaBis(e.target.value)}
-                      className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz bg-white"
-                      required
-                    />
+                <div>
+                  <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">ZA-Datum</label>
+                  <input
+                    type="date"
+                    value={datum}
+                    onChange={(e) => setDatum(e.target.value)}
+                    className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg text-xs font-mono outline-none focus:border-zs-blau-schwarz"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Ist-Stichtag</label>
+                  <input
+                    type="date"
+                    value={stichtagIst}
+                    onChange={(e) => setStichtagIst(e.target.value)}
+                    className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg text-xs font-mono outline-none focus:border-zs-blau-schwarz"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Zeitraum Bis (Vorschau)</label>
+                  <input
+                    type="date"
+                    value={zeitraumBis}
+                    onChange={(e) => setZeitraumBis(e.target.value)}
+                    className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg text-xs font-mono outline-none focus:border-zs-blau-schwarz"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Wertstellung / Auszahlung</label>
+                  <input
+                    type="date"
+                    value={auszahlungsDatum}
+                    onChange={(e) => setAuszahlungsDatum(e.target.value)}
+                    className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg text-xs font-mono outline-none focus:border-zs-blau-schwarz"
+                  />
+                </div>
+              </div>
+
+              {/* Spalte 2 & SV-Quote */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-3.5 rounded-xl bg-zinc-50 border border-zinc-200 text-xs">
+                <div>
+                  <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">
+                    Spalte 2: Bisher im Haushaltsjahr abgerufen/geplant (€)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={spalte2BisherGeplant}
+                    onChange={(e) => setSpalte2BisherGeplant(parseFloat(e.target.value) || 0)}
+                    className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg text-xs font-mono font-bold bg-white outline-none focus:border-zs-blau-schwarz tabular-nums"
+                  />
+                  <div className="text-[10px] font-mono text-zinc-500 mt-1 tabular-nums">
+                    Erwartet aus Vor-ZA: {formatEuro(expectedSpalte2ForCurrent, 2)}
                   </div>
                 </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Beantragter Wert (€)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={maBean}
-                      onChange={(e) => setMaBean(e.target.value)}
-                      className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz bg-white"
-                      required
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Eingegangener Wert (€)</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      placeholder="Noch ausstehend..."
-                      value={maEing}
-                      onChange={(e) => setMaEing(e.target.value)}
-                      className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz bg-white text-emerald-700 font-bold"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Auszahlungsquartal</label>
-                    <select
-                      value={maQ}
-                      onChange={(e) => setMaQ(Number(e.target.value))}
-                      className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz bg-white"
-                    >
-                      <option value="1">Q1</option>
-                      <option value="2">Q2</option>
-                      <option value="3">Q3</option>
-                      <option value="4">Q4</option>
-                    </select>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-mono font-bold text-zinc-400 uppercase tracking-wider">Status</label>
-                    <select
-                      value={maStatus}
-                      onChange={(e) => setMaStatus(e.target.value as Mittelabruf['status'])}
-                      className="px-3 py-2 bg-zinc-50 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz bg-white"
-                    >
-                      <option value="ENTWURF">ENTWURF</option>
-                      <option value="IN_PRUEFUNG">IN PRÜFUNG</option>
-                      <option value="EINGEREICHT">EINGEREICHT</option>
-                      <option value="ARCHIVIERT">ARCHIVIERT</option>
-                    </select>
+                <div>
+                  <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">
+                    Fallback-SV-Satz (ohne DATEV-Split) ({svSharePct} %)
+                  </label>
+                  <input
+                    type="range"
+                    min="14"
+                    max="24"
+                    step="0.5"
+                    value={svSharePct}
+                    onChange={(e) => setSvSharePct(parseFloat(e.target.value))}
+                    className="mt-3 w-full accent-zs-blau-schwarz"
+                  />
+                  <div className="text-[10px] text-zinc-500 mt-1">
+                    Stammdaten (0812/0817/0820) &amp; DATEV-Splits haben Vorrang.
                   </div>
                 </div>
               </div>
-              <div className="p-5 border-t border-zinc-100 flex justify-end gap-2 bg-zinc-50/50">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 rounded-full border border-zinc-200 text-xs font-semibold text-zinc-500 hover:bg-zinc-100 transition-all cursor-pointer"
-                >
-                  Abbrechen
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-full bg-zs-signal-gelb text-zs-blau-schwarz font-bold text-xs hover:bg-zs-blau-schwarz hover:text-zs-signal-gelb transition-all cursor-pointer"
-                >
-                  Registrieren
-                </button>
+
+              {/* Tabelle Positionen 0812–0843: Spalte 3 Ist & Spalte 5 Vorschau */}
+              <div className="overflow-x-auto border border-zinc-200 rounded-xl">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-zinc-50 border-b border-zinc-200 font-mono text-[10px] text-zinc-500 uppercase">
+                      <th className="py-2.5 px-4">Pos.</th>
+                      <th className="py-2.5 px-3">profi-online Position</th>
+                      <th className="py-2.5 px-3 text-right">Spalte 3: Ist kumuliert (€)</th>
+                      <th className="py-2.5 px-4 text-right">Spalte 5: Vorschau 2 Mon. (€)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-100">
+                    {PROFI_POSITIONEN.map((pos) => (
+                      <tr key={pos.code}>
+                        <td className="py-2.5 px-4 font-mono font-bold text-zs-blau-schwarz">
+                          {pos.displayCode}
+                        </td>
+                        <td className="py-2.5 px-3 font-medium text-zinc-700">{pos.bezeichnung}</td>
+                        <td className="py-2 px-3 text-right">
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={istJePos[pos.code]}
+                            onChange={(e) =>
+                              setIstJePos((prev) => ({
+                                ...prev,
+                                [pos.code]: parseFloat(e.target.value) || 0,
+                              }))
+                            }
+                            className="w-36 px-2.5 py-1.5 text-right border border-zinc-300 rounded-lg font-mono text-xs tabular-nums outline-none focus:border-zs-blau-schwarz"
+                          />
+                        </td>
+                        <td className="py-2 px-4 text-right">
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={vorschauJePos[pos.code]}
+                            onChange={(e) =>
+                              setVorschauJePos((prev) => ({
+                                ...prev,
+                                [pos.code]: parseFloat(e.target.value) || 0,
+                              }))
+                            }
+                            className="w-36 px-2.5 py-1.5 text-right border border-zinc-300 rounded-lg font-mono text-xs tabular-nums outline-none focus:border-zs-blau-schwarz"
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-zinc-50 border-t border-zinc-200 font-mono font-bold text-xs text-zs-blau-schwarz">
+                      <td className="py-3 px-4" colSpan={2}>
+                        Summe Spalte 3 &amp; Spalte 5 (100 % Ausgabenbasis)
+                      </td>
+                      <td className="py-3 px-3 text-right tabular-nums">{formatEuro(sumIst, 2)}</td>
+                      <td className="py-3 px-4 text-right tabular-nums">{formatEuro(sumVorschau, 2)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
               </div>
-            </form>
+
+              {/* Zeile 14–19 profi-online Berechnungsmatrix */}
+              <div className="bg-[#041422] text-white rounded-xl p-5 space-y-3 font-mono text-xs">
+                <div className="text-[11px] uppercase tracking-wider text-[#58B49D] font-bold">
+                  Berechnung Zeilen 14–19 (90 % Bundesanteil)
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2.5">
+                  <div className="flex justify-between items-center border-b border-white/10 pb-1.5">
+                    <span className="text-zinc-300">Zeile 14 · Bisher anzurechnen (90 % Sp. 2)</span>
+                    <span className="font-bold tabular-nums">{formatEuro(zeile14Anzurechnen, 2)}</span>
+                  </div>
+                  <div className="flex justify-between items-center border-b border-white/10 pb-1.5">
+                    <span className="text-zinc-300">Zeile 15 · 90 % Bundesanteil aus Spalte 3</span>
+                    <span className="font-bold tabular-nums">{formatEuro(zeile15BundesanteilIst, 2)}</span>
+                  </div>
+                  <div className="flex justify-between items-center border-b border-white/10 pb-1.5">
+                    <span className="text-zinc-300">Zeile 16 · Kassenbestand (Z.14 − Z.15)</span>
+                    <span
+                      className={`font-bold tabular-nums ${
+                        zeile16Kassenbestand > 0.01 ? 'text-amber-300' : 'text-zinc-200'
+                      }`}
+                    >
+                      {zeile16Kassenbestand > 0 ? `+${formatEuro(zeile16Kassenbestand, 2)}` : formatEuro(zeile16Kassenbestand, 2)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center border-b border-white/10 pb-1.5 gap-2">
+                    <span className="text-zinc-300">Zeile 17 · Zusätzlich zu verrechnen</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={zeile17Zusatz}
+                      onChange={(e) => setZeile17Zusatz(parseFloat(e.target.value) || 0)}
+                      className="w-28 px-2 py-1 text-right bg-white/10 border border-white/20 rounded text-xs font-bold text-white tabular-nums outline-none"
+                    />
+                  </div>
+                  <div className="flex justify-between items-center border-b border-white/10 pb-1.5">
+                    <span className="text-zinc-300">Zeile 18 · 90 % Bundesanteil Vorschau (Sp. 5)</span>
+                    <span className="font-bold tabular-nums">{formatEuro(zeile18BundesanteilVorschau, 2)}</span>
+                  </div>
+                  <div className="flex justify-between items-center bg-zs-signal-gelb/15 border border-zs-signal-gelb/40 px-3 py-2 rounded-lg">
+                    <span className="text-zs-signal-gelb font-bold">Zeile 19 · Angeforderte Bundesmittel</span>
+                    <span className="text-lg font-extrabold text-zs-signal-gelb tabular-nums">
+                      {formatEuro(zeile19Angefordert, 2)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Notizen & Aktionen */}
+              <div>
+                <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Notizen / Prüfhistorie</label>
+                <input
+                  type="text"
+                  value={notizen}
+                  onChange={(e) => setNotizen(e.target.value)}
+                  placeholder="z. B. Übertrag Vorperiode, besondere Erläuterung..."
+                  className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg text-xs outline-none focus:border-zs-blau-schwarz"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-zinc-100">
+                <div className="flex items-center gap-2">
+                  {activeZa &&
+                    (deleteConfirmId === activeZa.id ? (
+                      <div className="flex items-center gap-1.5 bg-red-50 px-2.5 py-1 rounded border border-red-200 text-xs">
+                        <span className="text-red-700 font-bold">ZA löschen?</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onDeleteZa(activeZa.id);
+                            setDeleteConfirmId(null);
+                            setSelectedZaId('new');
+                          }}
+                          className="px-2 py-0.5 rounded bg-red-600 text-white text-[11px] font-bold cursor-pointer"
+                        >
+                          Ja
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeleteConfirmId(null)}
+                          className="px-2 py-0.5 rounded bg-zinc-200 text-zinc-700 text-[11px] font-bold cursor-pointer"
+                        >
+                          Nein
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setDeleteConfirmId(activeZa.id)}
+                        className="px-3 py-2 rounded-lg text-xs font-semibold text-red-600 hover:bg-red-50 flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Entfernen</span>
+                      </button>
+                    ))}
+                </div>
+
+                <div className="flex items-center gap-3">
+                  {saveMessage && (
+                    <span className="text-xs font-semibold text-emerald-700 flex items-center gap-1">
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>{saveMessage}</span>
+                    </span>
+                  )}
+                  <button
+                    type="submit"
+                    className="px-5 py-2 rounded-lg bg-zs-signal-gelb text-zs-blau-schwarz font-bold text-xs hover:bg-zs-blau-schwarz hover:text-zs-signal-gelb transition-colors cursor-pointer"
+                  >
+                    ZA speichern &amp; im Audit-Log sichern
+                  </button>
+                </div>
+              </div>
+            </div>
+          </form>
+        </div>
+        </div>
+      ) : (
+        /* ── TAB 2: KLASSISCHE MITTELABRUFE ── */
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="inline-flex items-center gap-1 p-1 bg-zinc-200/70 rounded-lg border border-zinc-200 text-xs">
+              {(
+                [
+                  { id: 'all', label: 'Alle' },
+                  { id: 'open', label: 'Offen' },
+                  { id: 'paid', label: 'Eingegangen / Archiv' },
+                ] as { id: AbrufStatusFilter; label: string }[]
+              ).map((f) => (
+                <button
+                  key={f.id}
+                  onClick={() => {
+                    setStatusFilter(f.id);
+                    onStatusFilterChange?.(f.id);
+                  }}
+                  className={`px-3 py-1 rounded-md font-semibold cursor-pointer ${
+                    statusFilter === f.id ? 'bg-white text-zs-blau-schwarz' : 'text-zinc-600'
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() =>
+                  downloadCSV(
+                    'Mittelabrufe_BAFA.csv',
+                    [
+                      ['Abrufnummer', 'Von', 'Bis', 'Jahr', 'Beantragt', 'Eingegangen', 'Differenz', 'Status'],
+                      ...filteredAbrufe.map((a) => [
+                        a.abrufnummer,
+                        a.zeitraumVon,
+                        a.zeitraumBis,
+                        a.foerderjahr,
+                        a.beantragt,
+                        a.eingegangen,
+                        a.differenz,
+                        a.status,
+                      ]),
+                    ]
+                  )
+                }
+                className="px-3 py-2 rounded-lg border border-zinc-200 bg-white text-xs font-semibold hover:bg-zinc-50 flex items-center gap-1.5 cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>CSV Export</span>
+              </button>
+              <button
+                onClick={() => setShowNewAbrufModal(true)}
+                className="px-4 py-2 rounded-lg bg-zs-blau-schwarz text-white text-xs font-bold hover:bg-[#08243d] flex items-center gap-1.5 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5 text-zs-signal-gelb" />
+                <span>Mittelabruf erfassen</span>
+              </button>
+            </div>
           </div>
+
+          <div className="bg-white rounded-xl border border-zinc-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-[10px] text-zinc-500 uppercase">
+                    <th className="p-3 pl-5">Abrufnummer</th>
+                    <th className="p-3">Zeitraum</th>
+                    <th className="p-3">Förderjahr / Q</th>
+                    <th className="p-3 text-right">Beantragt (€)</th>
+                    <th className="p-3 text-right">Eingegangen (€)</th>
+                    <th className="p-3 text-right">Offen (€)</th>
+                    <th className="p-3 pr-5 text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-zinc-100">
+                  {filteredAbrufe.map((a) => (
+                    <tr key={a.id} className="hover:bg-zinc-50">
+                      <td className="p-3 pl-5 font-mono font-bold text-zs-blau-schwarz">{a.abrufnummer}</td>
+                      <td className="p-3 font-mono text-zinc-600">
+                        {formatDate(a.zeitraumVon)} – {formatDate(a.zeitraumBis)}
+                      </td>
+                      <td className="p-3 font-mono text-zinc-600">
+                        {a.foerderjahr} &middot; Q{a.quartal}
+                      </td>
+                      <td className="p-3 text-right font-mono font-semibold tabular-nums">
+                        {formatEuro(a.beantragt, 2)}
+                      </td>
+                      <td className="p-3 text-right font-mono text-[#58B49D] font-semibold tabular-nums">
+                        {formatEuro(a.eingegangen, 2)}
+                      </td>
+                      <td className="p-3 text-right font-mono font-bold text-red-700 tabular-nums">
+                        {formatEuro(a.differenz, 2)}
+                      </td>
+                      <td className="p-3 pr-5 text-center">
+                        <select
+                          value={a.status}
+                          onChange={(e) =>
+                            onUpdateMittelabrufStatus(a.id, e.target.value as Mittelabruf['status'])
+                          }
+                          className="px-2 py-1 rounded border border-zinc-200 text-xs font-mono bg-white cursor-pointer"
+                        >
+                          <option value="ENTWURF">ENTWURF</option>
+                          <option value="IN_PRUEFUNG">IN_PRUEFUNG</option>
+                          <option value="EINGEREICHT">EINGEREICHT</option>
+                          <option value="ARCHIVIERT">ARCHIVIERT</option>
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Neuer Mittelabruf */}
+      {showNewAbrufModal && (
+        <div
+          className="fixed inset-0 bg-[#041422]/60 backdrop-blur-xs flex items-center justify-center z-50 p-4"
+          onClick={() => setShowNewAbrufModal(false)}
+        >
+          <form
+            onSubmit={handleAbrufSubmit}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-white rounded-2xl border border-zinc-200 max-w-md w-full p-6 space-y-4 shadow-2xl"
+          >
+            <h3 className="font-display font-bold text-lg text-zs-blau-schwarz">Neuen BAFA-Mittelabruf anlegen</h3>
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Abrufnummer</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="BAFA-2026-Q3"
+                  value={abrufNummer}
+                  onChange={(e) => setAbrufNummer(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg font-mono"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Zeitraum Von</label>
+                  <input
+                    type="date"
+                    value={abrufVon}
+                    onChange={(e) => setAbrufVon(e.target.value)}
+                    className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Zeitraum Bis</label>
+                  <input
+                    type="date"
+                    value={abrufBis}
+                    onChange={(e) => setAbrufBis(e.target.value)}
+                    className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg font-mono"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Förderjahr</label>
+                  <input
+                    type="number"
+                    value={abrufJahr}
+                    onChange={(e) => setAbrufJahr(parseInt(e.target.value) || 2026)}
+                    className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Quartal</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={4}
+                    value={abrufQuartal}
+                    onChange={(e) => setAbrufQuartal(parseInt(e.target.value) || 1)}
+                    className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg font-mono"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] font-mono font-bold text-zinc-500 uppercase">Beantragter Betrag (€)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  required
+                  value={abrufBeantragt}
+                  onChange={(e) => setAbrufBeantragt(e.target.value)}
+                  className="mt-1 w-full px-3 py-2 border border-zinc-300 rounded-lg font-mono font-bold"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-3 border-t border-zinc-100">
+              <button
+                type="button"
+                onClick={() => setShowNewAbrufModal(false)}
+                className="px-4 py-2 rounded-lg border border-zinc-200 text-xs font-semibold cursor-pointer"
+              >
+                Abbrechen
+              </button>
+              <button
+                type="submit"
+                className="px-4 py-2 rounded-lg bg-zs-blau-schwarz text-white text-xs font-bold cursor-pointer"
+              >
+                Speichern
+              </button>
+            </div>
+          </form>
         </div>
       )}
     </div>

@@ -1,3 +1,58 @@
+export type ProfiPositionCode = '0812' | '0817' | '0820' | '0831' | '0835' | '0843';
+
+export type ProfiPositionAmounts = Record<ProfiPositionCode, number>;
+
+export type AzaPlanVersion =
+  | 'baseline_2025_03'
+  | 'aenderung_2025_12_personal'
+  | 'aenderung_2026_11_uebertrag';
+
+export interface SystemSettings {
+  vorsteuerabzugsberechtigt: boolean;
+  privacyMode: boolean;
+  boardroomMode: boolean;
+  azaVersion: AzaPlanVersion;
+  gamificationMode?: boolean;
+}
+
+export interface MitarbeiterStamm {
+  id: number;
+  name: string;
+  rolle: string;
+  primaerePosition: '0812' | '0817';
+  svQuote: number; // z. B. 0.185 für Angestellte, 0.18 für Aushilfen/SHK
+  tvoedGruppe: string;
+  tvoedStufe: string;
+  aktiv: boolean;
+}
+
+export interface Zahlungsanforderung {
+  id: number;
+  bezeichnung: string;
+  kennung?: string; // e.g. 2992656-5
+  datum: string; // YYYY-MM-DD (ZA-Datum)
+  zeitraumVon: string;
+  zeitraumBis: string;
+  stichtagIst: string; // YYYY-MM-DD
+  spalte2BisherGeplant?: number; // Vorherige Spalte 3 + Spalte 5
+  istJePosition: ProfiPositionAmounts; // Spalte 3 kumuliert
+  vorschauJePosition: ProfiPositionAmounts; // Spalte 5 Zweimonats-Vorschau
+  kassenbestand: number; // Zeile 16 = Zeile 14 - Zeile 15 (positiv = Guthaben)
+  erhalteneBundesmittel: number; // Zeile 14 bzw. angerechnete Vorleistungen
+  zeile14BisherAnzurechnen?: number; // Zeile 14 explizit (90 % von Spalte 2)
+  zeile17ZusatzVerrechnung?: number; // Zeile 17 Zusätzlich zu verrechnen
+  auszahlungsDatum?: string | null; // Wertstellungsdatum für ANBest-P 2-Monats-Frist
+  bundesanteilQuote: number; // 0.90
+  zeile19Anforderung: number;
+  belegVollstaendig: boolean;
+  manuelleKorrektur: boolean;
+  notizen?: string;
+  pdfHash?: string;
+  status: 'Entwurf' | 'Eingereicht' | 'Abgerechnet';
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface PersonalEintrag {
   id: number;
   mitarbeiter: string;
@@ -8,9 +63,13 @@ export interface PersonalEintrag {
   sachkosten: number;
   foerderfaehig: number;
   bafaAnteil: number;
-  lhoAnteil: number;
+  lhoAnteil?: number; // legacy compatibility (always 0 in 90/10 FKZ 46SK0267X)
   eigenaufwand: number;
   foerderjahr: number;
+  profiPosition?: '0812' | '0817' | '0820';
+  brutto0812?: number; // Exakter DATEV-Anteil 0812
+  brutto0817?: number; // Exakter DATEV-Anteil 0817
+  sv0820?: number; // Exakter DATEV-Anteil 0820
   status: 'ENTWURF' | 'IN_PRUEFUNG' | 'EINGEREICHT' | 'ARCHIVIERT';
   bemerkung: string;
   createdAt?: string;
@@ -25,12 +84,18 @@ export interface Rechnungsbeleg {
   rechnungsdatum: string; // YYYY-MM-DD
   zahlungsdatum: string | null; // YYYY-MM-DD
   kostenkategorie: string;
+  profiPosition?: ProfiPositionCode;
   foerderjahr: number;
   quartal: number;
   arbeitspaket: string;
   betragNetto: number;
   betragBrutto: number;
+  mwstSatz?: 0 | 7 | 19 | 'brutto';
+  foerderfaehigerBetrag?: number;
   foerderfaehig: boolean;
+  useCaseId?: number | null;
+  vergabeId?: number | null;
+  pdfHash?: string;
   status: 'ENTWURF' | 'IN_PRUEFUNG' | 'EINGEREICHT' | 'ARCHIVIERT';
   createdAt?: string;
   updatedAt?: string;
@@ -47,6 +112,7 @@ export interface Mittelabruf {
   beantragt: number;
   eingegangen: number;
   differenz: number;
+  zaId?: number;
   status: 'ENTWURF' | 'IN_PRUEFUNG' | 'EINGEREICHT' | 'ARCHIVIERT';
   createdAt?: string;
 }
@@ -76,16 +142,25 @@ export interface Vergabe {
   vertragsende: string | null;
   arbeitspaket: string | null;
   bafaFreigabe: boolean;
+  useCaseId?: number | null;
   status: 'Vorbereitung' | 'Veröffentlichung' | 'Angebotsphase' | 'Prüfung' | 'Zuschlag' | 'abgeschlossen';
   notizen: string;
   createdAt?: string;
   updatedAt?: string;
 }
 
+export interface UseCaseTodo {
+  id: string;
+  text: string;
+  completed: boolean;
+  dueDate?: string;
+}
+
 export interface UseCase {
   id: number;
   titel: string;
-  unternehmen: string;
+  unternehmen: string; // Industrieunternehmen
+  startupPartner?: string; // Startup / Lösungspartner
   ansprechpartner: string;
   branche: string; // Papier | Chemie | Textil | Energie | Übergreifend
   reifegrad: string; // Idee | Konzept | Prototyp | Pilotbetrieb | Produktiv | Skalierung
@@ -95,7 +170,7 @@ export interface UseCase {
   politischeRelevanz: number; // 1-5
   deadline: string; // YYYY-MM-DD
   erfolgswahrscheinlichkeit: number; // 0-100
-  status: 'Pipeline' | 'in Prüfung' | 'aktiv' | 'kritisch' | 'abgeschlossen';
+  status: 'Pipeline' | 'in Prüfung' | 'in Vorbereitung' | 'aktiv' | 'kritisch' | 'abgeschlossen';
   notizen: string;
   sharepointUrl: string;
   websiteUrl: string;
@@ -103,6 +178,11 @@ export interface UseCase {
   loesung?: string;
   loesungWebsite?: string;
   projektbeschreibung?: string;
+  problemstellung?: string;
+  loesungsansatz?: string;
+  statusNextSteps?: string;
+  standortMehrwert?: string;
+  todos?: UseCaseTodo[];
   createdAt?: string;
   updatedAt?: string;
 }
@@ -114,9 +194,9 @@ export interface Task {
   dueDate: string | null;
   status: 'offen' | 'in_bearbeitung' | 'erledigt';
   priority: 'niedrig' | 'mittel' | 'hoch';
-  useCaseId?: number | null; // Associated Use Case
-  vergabeId?: number | null; // Associated Vergabe
-  rechnungId?: number | null; // Associated Rechnung
+  useCaseId?: number | null;
+  vergabeId?: number | null;
+  rechnungId?: number | null;
   createdAt: string;
   updatedAt?: string;
 }
@@ -134,7 +214,7 @@ export interface Partner {
   name: string;
   typ: 'Startup / Lösungspartner' | 'Industrieunternehmen' | 'Kooperationspartner' | 'Dienstleister';
   branche: string;
-  status: 'in Kontakt' | 'aktiv' | 'Pilot läuft' | 'abgeschlossen' | 'abgelehnt';
+  status: 'in Kontakt' | 'aktiv' | 'Pilot läuft' | 'Vorbereitung' | 'abgeschlossen' | 'abgelehnt';
   rolle?: string;
   useCase?: string;
   ap?: string;
@@ -176,6 +256,7 @@ export interface EventLogItem {
 }
 
 export interface PartnerMatch {
+  id?: number;
   industryId: number;
   providerId: number;
   type: string;
@@ -188,6 +269,33 @@ export interface AuditLog {
   action: string;
   details: string;
   user: string;
+  entityType?: string;
+  entityId?: number;
+  beforeJson?: string;
+  afterJson?: string;
+  previousHash?: string;
+  hash?: string;
+  pdfHash?: string;
 }
 
-
+export interface OekoprofitCheckup {
+  id: number;
+  startupName: string;
+  berater: string;
+  branche: string;
+  verguetungBrutto: number; // Standard 5000.00 EUR brutto (Pos. 0835)
+  termin1Datum?: string;
+  protokoll1Abgegeben: boolean;
+  termin2Datum?: string;
+  protokoll2Abgegeben: boolean;
+  termin3Datum?: string;
+  abschlussReportingAbgegeben: boolean;
+  abschlag1Freigegeben: boolean; // 25% = 1.250 EUR
+  abschlag2Freigegeben: boolean; // 25% = 1.250 EUR
+  schlusszahlungFreigegeben: boolean; // 50% = 2.500 EUR
+  tranche1Invoiced?: boolean;
+  tranche2Invoiced?: boolean;
+  tranche3Invoiced?: boolean;
+  status: 'Geplant' | 'In Beratung' | 'Reporting offen' | 'Abgeschlossen';
+  notizen?: string;
+}
