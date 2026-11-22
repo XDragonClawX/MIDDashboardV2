@@ -475,7 +475,7 @@ export default function ExcelImportPage({
             <div className="bg-amber-50 border border-amber-200 text-amber-805 p-4 rounded-xl text-xs space-y-1">
               <strong className="font-bold">Zuweisungswarnungen:</strong>
               {validationErrors.map((err, idx) => (
-                <div key={idx}>⚠️ {err}</div>
+                <div key={`${idx}-${err}`}>⚠️ {err}</div>
               ))}
             </div>
           )}

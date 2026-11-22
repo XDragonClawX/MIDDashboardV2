@@ -186,8 +186,8 @@ export default function ExecutiveCockpit({
       return (
         <div className="bg-zs-blau-schwarz text-white p-3 rounded-lg border border-white/10 shadow-xl font-mono text-[11px] space-y-1">
           <p className="font-bold border-b border-white/15 pb-1 select-none">{`Eintrag: ${label}`}</p>
-          {payload.map((entry: any, i: number) => (
-            <div key={i} className="flex justify-between gap-6">
+          {payload.map((entry: any) => (
+            <div key={entry.name} className="flex justify-between gap-6">
               <span className="opacity-80" style={{ color: entry.color || entry.payload.fill || '#fff' }}>● {entry.name}:</span>
               <span className="font-bold">{formatEuro(entry.value)}</span>
             </div>
@@ -656,8 +656,8 @@ export default function ExecutiveCockpit({
 
               {/* Donut Legend */}
               <div className="grid grid-cols-3 gap-1.5 mt-3 pt-3 border-t border-zinc-200/60 font-mono text-[9px]">
-                {budgetSplitData.map((item, i) => (
-                  <div key={i} className="flex flex-col items-center p-1 rounded hover:bg-zinc-100 transition-colors">
+                {budgetSplitData.map((item) => (
+                  <div key={item.name} className="flex flex-col items-center p-1 rounded hover:bg-zinc-100 transition-colors">
                     <span className="w-2.5 h-1.5 rounded-xs" style={{ backgroundColor: item.color }}></span>
                     <span className="text-[10px] font-bold text-zinc-800 mt-1 block truncate max-w-full" title={item.name}>{item.name.split(' ')[0]}</span>
                     <span className="text-zinc-500 font-semibold">{((item.value / foerderfaehig) * 100).toFixed(1)}%</span>

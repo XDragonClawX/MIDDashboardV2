@@ -1,20 +1,8 @@
-import { AuditLogItem } from './types';
-
-// Storage und Recovery keys
-export const STORAGE_KEYS = {
-  personal: 'midpct_personal',
-  rechnungen: 'midpct_rechnungen',
-  mittelabrufe: 'midpct_mittelabrufe',
-  buchungen: 'midpct_buchungen',
-  vergaben: 'midpct_vergaben',
-  usecases: 'midpct_usecases',
-  audit: 'midpct_audit',
-  partner: 'midpct_partner',
-  mitarbeiter: 'midpct_mitarbeiter_namen',
-  ucNotes: 'midpct_uc_notes',
-  ucInvoices: 'midpct_uc_inv',
-  events: 'midpct_events',
-};
+// Nächste freie numerische ID für eine Liste von Objekten mit id-Feld.
+// Zentral, damit die ID-Vergabe nicht an vielen Stellen dupliziert wird.
+export function getNextId<T extends { id: number }>(items: T[], start = 1): number {
+  return items.length > 0 ? Math.max(...items.map((x) => x.id)) + 1 : start;
+}
 
 // Schema-Version der im localStorage abgelegten Daten. Erhöhen, sobald sich
 // die Struktur eines gespeicherten Werts inkompatibel ändert, und in
@@ -106,36 +94,6 @@ export function getQuarterFromMonth(month: number): number {
 // Obergrenze für persistierte Audit-Einträge, damit der localStorage nicht
 // unbegrenzt wächst und irgendwann das Quota sprengt.
 export const MAX_AUDIT_ENTRIES = 1000;
-
-export function addAuditLog(
-  entityType: string,
-  entityId: number,
-  changeType: 'CREATE' | 'UPDATE' | 'DELETE' | 'STATUS_CHANGE' | 'EXPORT' | 'IMPORT' | 'ARCHIVE',
-  alterWert: string = '',
-  neuerWert: string = ''
-): void {
-  try {
-    const logs = loadLocalStorage<AuditLogItem[]>(STORAGE_KEYS.audit, []);
-    const newId = logs.length ? Math.max(...logs.map((x) => x.id)) + 1 : 1;
-    const newItem: AuditLogItem = {
-      id: newId,
-      entityType,
-      entityId,
-      changeType,
-      windowsUser: 'WIN.DN-PROJEKTOOFFICE',
-      computerName: 'SURFACE-PRO-CLIENT',
-      alterWert: String(alterWert),
-      neuerWert: String(neuerWert),
-      createdAt: new Date().toISOString(),
-    };
-    logs.unshift(newItem);
-    // Älteste Einträge verwerfen, sobald das Limit überschritten wird.
-    const capped = logs.length > MAX_AUDIT_ENTRIES ? logs.slice(0, MAX_AUDIT_ENTRIES) : logs;
-    saveLocalStorage(STORAGE_KEYS.audit, capped);
-  } catch (err) {
-    console.error('Failed to write audit log', err);
-  }
-}
 
 export function downloadCSV(filename: string, rows: (string | number)[][]): void {
   // UTF-8 BOM so Excel opens it with right special chars (ä, ö, ü, €)

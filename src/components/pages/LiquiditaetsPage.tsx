@@ -254,11 +254,11 @@ export default function LiquiditaetsPage({
               </tr>
             </thead>
             <tbody>
-              {monthlyData.map((r, idx) => {
+              {monthlyData.map((r) => {
                 const isPositiveMonth = r.Balance >= 0;
                 const isPositiveKum = r.cumulative >= 0;
                 return (
-                  <tr key={idx} className="border-b border-zinc-100 hover:bg-zinc-50/50 transition-colors">
+                  <tr key={r.fullName} className="border-b border-zinc-100 hover:bg-zinc-50/50 transition-colors">
                     <td className="p-3 pl-5 font-semibold text-xs text-zs-blau-schwarz">{r.fullName}</td>
                     <td className="p-3 text-xs text-right font-mono text-zinc-600">{r['BAFA (Inflow)'] > 0 ? formatEuro(r['BAFA (Inflow)']) : '–'}</td>
                     <td className="p-3 text-xs text-right font-mono text-zinc-600">{r['LHO (Inflow)'] > 0 ? formatEuro(r['LHO (Inflow)']) : '–'}</td>

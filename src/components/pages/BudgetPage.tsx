@@ -268,8 +268,8 @@ export default function BudgetPage({
             </ResponsiveContainer>
           </div>
           <div className="space-y-1.5 mt-2 w-full text-xs font-mono text-[10px]">
-            {pieData.map((e, index) => (
-              <div key={index} className="flex justify-between items-center bg-zinc-50 px-2 py-1 rounded border border-zinc-100">
+            {pieData.map((e) => (
+              <div key={e.name} className="flex justify-between items-center bg-zinc-50 px-2 py-1 rounded border border-zinc-100">
                 <span className="flex items-center gap-1.5 text-zinc-500">
                   <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ backgroundColor: e.color }} />
                   {e.name}
@@ -350,8 +350,8 @@ export default function BudgetPage({
                     {showGesamtColumn && <td className="p-2.5 text-right border-l border-zinc-200 font-bold">{formatEuro(totPersonalVal)}</td>}
                   </tr>
                   {/* Sub personal rows */}
-                  {planPersonal.map((p, idx) => (
-                    <tr key={idx} className="border-b border-zinc-100 hover:bg-zinc-50/50">
+                  {planPersonal.map((p) => (
+                    <tr key={p.pos} className="border-b border-zinc-100 hover:bg-zinc-50/50">
                       <td className="p-2 pl-8 text-zinc-700 font-medium italic">&mdash; {p.pos}</td>
                       {JKEYS.map((k) => (
                         <td key={k} className="p-2 text-right text-zinc-500 font-mono">{formatEuro((p as any)[k] || 0)}</td>
@@ -378,8 +378,8 @@ export default function BudgetPage({
                     {showGesamtColumn && <td className="p-2.5 text-right border-l border-zinc-200 font-bold">{formatEuro(totAuftraegeVal)}</td>}
                   </tr>
                   {/* Sub Autraege rows */}
-                  {planAuftraege.map((a, idx) => (
-                    <tr key={idx} className="border-b border-zinc-100 hover:bg-zinc-50/50">
+                  {planAuftraege.map((a) => (
+                    <tr key={a.pos} className="border-b border-zinc-100 hover:bg-zinc-50/50">
                       <td className="p-2 pl-8 text-zinc-700 font-medium italic">&mdash; {a.pos}</td>
                       {JKEYS.map((k) => (
                         <td key={k} className="p-2 text-right text-zinc-500 font-mono">{formatEuro((a as any)[k] || 0)}</td>
@@ -474,8 +474,8 @@ export default function BudgetPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {planPersonal.map((p, idx) => (
-                    <tr key={idx} className="border-b border-zinc-100 hover:bg-zinc-50/50">
+                  {planPersonal.map((p) => (
+                    <tr key={p.pos} className="border-b border-zinc-100 hover:bg-zinc-50/50">
                       <td className="p-3 pl-4 font-medium text-zinc-700">{p.pos}</td>
                       {JKEYS.map((k) => (
                         <td key={k} className="p-3 text-right font-mono text-zinc-500">{formatEuro((p as any)[k] || 0)}</td>
@@ -517,10 +517,10 @@ export default function BudgetPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {planAuftraege.map((a, idx) => {
+                  {planAuftraege.map((a) => {
                     const isBooster = a.pos.startsWith('Transformations-Booster');
                     return (
-                      <tr key={idx} className={`border-b border-zinc-100 hover:bg-zinc-50/50 ${
+                      <tr key={a.pos} className={`border-b border-zinc-100 hover:bg-zinc-50/50 ${
                         isBooster ? 'bg-[#58B49D]/5 hover:bg-[#58B49D]/10' : ''
                       }`}>
                         <td className="p-3 pl-4">

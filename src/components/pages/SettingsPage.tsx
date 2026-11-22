@@ -551,8 +551,8 @@ export default function SettingsPage({
           <span className="font-mono text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider">Regulatorische Konstanten (BAFA-STARK &bull; LHO NRW)</span>
         </div>
         <div className="divide-y divide-zinc-100">
-          {constants.map((c, i) => (
-            <div key={i} className="flex justify-between items-center p-4 text-xs font-sans hover:bg-zinc-50/30 transition-all">
+          {constants.map((c) => (
+            <div key={c.key} className="flex justify-between items-center p-4 text-xs font-sans hover:bg-zinc-50/30 transition-all">
               <span className="font-semibold text-zinc-700">{c.key}</span>
               <span className="font-mono text-[#041422] font-semibold bg-zinc-100 px-3 py-1 rounded border border-zinc-150">{c.val}</span>
             </div>

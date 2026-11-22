@@ -309,7 +309,7 @@ export default function RechnungsPage({
                   </div>
                   <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 mt-2 text-[10px] font-mono max-h-12 overflow-y-auto">
                     {statusData.map((e, index) => (
-                      <span key={index} className="flex items-center gap-1">
+                      <span key={e.name} className="flex items-center gap-1">
                         <span className="w-1.5 h-1.5 rounded-full inline-block" style={{ backgroundColor: COLORS[index % COLORS.length] }}></span>
                         {e.name} ({e.value})
                       </span>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   PersonalEintrag,
   Rechnungsbeleg,
@@ -20,7 +20,7 @@ import {
   SEED_PARTNER as INITIAL_PARTNERS,
   SEED_TASKS as INITIAL_TASKS,
 } from './data';
-import { loadLocalStorage as loadFromStorage, saveLocalStorage as saveToStorage, MAX_AUDIT_ENTRIES } from './utils';
+import { loadLocalStorage as loadFromStorage, saveLocalStorage as saveToStorage, MAX_AUDIT_ENTRIES, getNextId } from './utils';
 
 const INITIAL_MATCHES: PartnerMatch[] = [];
 const INITIAL_BUCHUNGEN: Buchung[] = [];
@@ -39,7 +39,7 @@ function sanitizeAndDeduplicate<T extends { id: number }>(items: T[], fallbackSe
     }
   });
 
-  let nextId = verifiedList.length > 0 ? Math.max(...verifiedList.map(x => x.id)) + 1 : 1;
+  let nextId = getNextId(verifiedList);
   if (nextId < 1 || isNaN(nextId)) nextId = 1;
 
   return verifiedList.map((item) => {
@@ -229,7 +229,7 @@ export default function App() {
   // Central log writer helper to track revision entries
   const writeLog = (module: string, action: string, details: string) => {
     setLogs((prev) => {
-      const newId = prev.length > 0 ? Math.max(...prev.map((l) => l.id)) + 1 : 1;
+      const newId = getNextId(prev);
       const entry: AuditLog = {
         id: newId,
         timestamp: new Date().toISOString(),
@@ -249,7 +249,7 @@ export default function App() {
   // Personal Page Handlers
   const handleAddPersonal = (eintrag: Omit<PersonalEintrag, 'id'>) => {
     setPersonal((prev) => {
-      const nextId = prev.length > 0 ? Math.max(...prev.map((x) => x.id)) + 1 : 1;
+      const nextId = getNextId(prev);
       const item = { ...eintrag, id: nextId };
       writeLog('PERSONAL', 'CREATE', `Lohnbeleg für ${item.mitarbeiter} (${item.monat}/${item.jahr}) eingepflegt. AG-Kosten: ${item.agKosten} €`);
       return [...prev, item];
@@ -291,7 +291,7 @@ export default function App() {
   // Rechnungen (Expense Invoices) handlers
   const handleAddRechnung = (beleg: Omit<Rechnungsbeleg, 'id'>) => {
     setRechnungen((prev) => {
-      const nextId = prev.length > 0 ? Math.max(...prev.map((x) => x.id)) + 1 : 1;
+      const nextId = getNextId(prev);
       const item = { ...beleg, id: nextId };
       writeLog('EXPENSES', 'CREATE', `Sachbeleg ${item.rechnungsnummer} von ${item.rechnungssteller} über ${item.betragNetto} € netto eingebucht.`);
       return [...prev, item];
@@ -322,7 +322,7 @@ export default function App() {
   // Mittelabrufe Page Handlers
   const handleAddMittelabruf = (abruf: Omit<Mittelabruf, 'id'>) => {
     setMittelabrufe((prev) => {
-      const nextId = prev.length > 0 ? Math.max(...prev.map((x) => x.id)) + 1 : 1;
+      const nextId = getNextId(prev);
       const item = { ...abruf, id: nextId };
       writeLog('CLAIMS', 'CREATE', `Mittelabruf ${item.abrufnummer} über ${item.beantragt} € beim Mittelgeber beantragt.`);
       return [...prev, item];
@@ -345,7 +345,7 @@ export default function App() {
   // Manual bookings handlers (Budget tab)
   const handleAddBuchung = (booking: Omit<Buchung, 'id'>) => {
     setBuchungen((prev) => {
-      const nextId = prev.length > 0 ? Math.max(...prev.map((x) => x.id)) + 1 : 1;
+      const nextId = getNextId(prev);
       const item = { ...booking, id: nextId };
       writeLog('BUDGET', 'CREATE', `Manuelle Buchung "${item.beschreibung}" über ${item.betrag} € verbucht.`);
       return [...prev, item];
@@ -368,7 +368,7 @@ export default function App() {
   // Vergaben Procurements Page Handlers
   const handleAddVergabe = (vergabe: Omit<Vergabe, 'id'>) => {
     setVergaben((prev) => {
-      const nextId = prev.length > 0 ? Math.max(...prev.map((x) => x.id)) + 1 : 1;
+      const nextId = getNextId(prev);
       const item = { ...vergabe, id: nextId };
       writeLog('PROCUREMENT', 'CREATE', `Ausschreibung/Vergabe "${item.titel}" im Status "${item.status}" angelegt.`);
       return [...prev, item];
@@ -401,7 +401,7 @@ export default function App() {
     setUsecases((prev) => {
       // Clean up uc.id if it was passed from backend to avoid conflicting ID structures
       const { id: _dummyId, ...ucData } = uc;
-      const nextId = prev.length > 0 ? Math.max(...prev.map((x) => x.id)) + 1 : 1;
+      const nextId = getNextId(prev);
       const item = { ...ucData, id: nextId };
       
       // Use setTimeout to schedule state updates for related states to avoid nested render warnings
@@ -446,7 +446,7 @@ export default function App() {
   // Timeline Progress Notes triggers (Inside Use Case page details drawer)
   const handleAddUcNote = (ucId: number, note: { text: string; type: string }) => {
     const notesList = ucNotes[ucId] || [];
-    const nextId = notesList.length > 0 ? Math.max(...notesList.map((n) => n.id)) + 1 : 101;
+    const nextId = getNextId(notesList, 101);
     const newNote: UCNotiz = {
       id: nextId,
       text: note.text,
@@ -502,7 +502,7 @@ export default function App() {
   // ── TASKS & TO-DO HANDLERS ──
   const handleAddTask = (task: Omit<Task, 'id' | 'createdAt'>) => {
     setTasks((prev) => {
-      const nextId = prev.length > 0 ? Math.max(...prev.map((x) => x.id)) + 1 : 1;
+      const nextId = getNextId(prev);
       const item: Task = {
         ...task,
         id: nextId,
@@ -537,7 +537,7 @@ export default function App() {
   // Partner Database Handlers
   const handleAddPartner = (partner: Omit<Partner, 'id'>) => {
     setPartners((prev) => {
-      const nextId = prev.length > 0 ? Math.max(...prev.map((x) => x.id)) + 1 : 1;
+      const nextId = getNextId(prev);
       const item = { ...partner, id: nextId };
       writeLog('PARTNER', 'CREATE', `Neuer Partner "${item.name}" (${item.typ}) eingetragen.`);
       return [...prev, item];
@@ -775,7 +775,9 @@ export default function App() {
   };
 
   // Global search matching across collections (Strg+K)
-  const getSearchResults = () => {
+  // Suchindex nur neu berechnen, wenn sich Suchtext oder durchsuchte Daten
+  // ändern – statt bei jedem Render die gesamte Datenbasis zu durchlaufen.
+  const results = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return [];
 
@@ -863,16 +865,15 @@ export default function App() {
     });
 
     return results.slice(0, 8); // limit to 8 results max
-  };
-
-  const results = getSearchResults();
+  }, [searchQuery, rechnungen, personal, vergaben, usecases]);
 
   // Selected global year label readable helper
-  const activeYearLabel =
+  const activeYearLabel = useMemo(() =>
     activeYear === null ? 'Alle Förderjahre' :
     activeYear === 'gesamt25' ? 'Förderjahr 2025 (Ab April)' :
     activeYear === 'mrz29' ? 'Förderjahr 2029 (Bis März)' :
-    `Förderjahr ${activeYear}`;
+    `Förderjahr ${activeYear}`,
+    [activeYear]);
 
   return (
     <div className="min-h-screen bg-zinc-50 flex font-sans text-zinc-800 antialiased selection:bg-zs-signal-gelb/40 selection:text-zs-blau-schwarz">
@@ -985,7 +986,7 @@ export default function App() {
             <nav className="space-y-0.5">
               {[
                 { key: 'import', label: 'Excel/CSV Importer', icon: UploadCloud },
-                { key: 'report', label: 'Berichte &amp; Exporte', icon: FileText },
+                { key: 'report', label: 'Berichte & Exporte', icon: FileText },
                 { key: 'audit', label: 'Revisions-Änderungslog', icon: ShieldCheck },
                 { key: 'settings', label: 'Systemeinstellungen', icon: Settings },
               ].map((item) => {
@@ -1005,7 +1006,7 @@ export default function App() {
                     }`}
                   >
                     <Icon className="w-4 h-4" />
-                    <span dangerouslySetInnerHTML={{ __html: item.label }} />
+                    <span>{item.label}</span>
                   </button>
                 );
               })}
@@ -1312,9 +1313,9 @@ export default function App() {
                 </div>
               ) : (
                 <div className="space-y-0.5">
-                  {results.map((res, idx) => (
+                  {results.map((res) => (
                     <div
-                      key={idx}
+                      key={`${res.category}-${res.page}-${res.text}`}
                       onClick={() => {
                         setActivePage(res.page);
                         setSearchOpen(false);
