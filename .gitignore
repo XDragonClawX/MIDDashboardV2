@@ -19,3 +19,6 @@ src/MiD-PCT_Dashboard_OFFLINE.html
 
 # bun lockfile (Projekt nutzt npm)
 bun.lock
+
+# Laufzeit-Datenbank & Backups (zur Laufzeit vom Server erzeugt)
+data/

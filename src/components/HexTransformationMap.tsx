@@ -467,7 +467,7 @@ export default function HexTransformationMap({
                           sy={sy}
                           stage={stage}
                           highlighted={isHovered || isActive}
-                          label={uc.startupPartner || uc.loesung}
+                          label={uc.startupPartner || uc.loesung || ''}
                         />
                       </g>
                     )}
