@@ -16,7 +16,8 @@ function ensureDataDirs() {
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
+  const HOST = process.env.HOST || '0.0.0.0';
 
   ensureDataDirs();
 
@@ -332,8 +333,8 @@ async function startServer() {
     console.log('Production static files route active.');
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`Express application server running on http://0.0.0.0:${PORT}`);
+  app.listen(PORT, HOST, () => {
+    console.log(`Express application server running on http://${HOST}:${PORT}`);
   });
 }
 
