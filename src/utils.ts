@@ -1,4 +1,6 @@
 import {
+  AchievementTier,
+  ComplianceStreaks,
   AuditLog,
   AuditLogItem,
   MitarbeiterStamm,
@@ -730,14 +732,45 @@ export function downloadCSV(filename: string, rows: (string | number)[][]): void
 // ── Backup Timestamp Tracking (Backup-Wächter) ──
 export const BACKUP_TIMESTAMP_KEY = 'midpct_last_backup_at';
 
+// Verlauf der Monate (YYYY-MM) mit mindestens einer Sicherung – Grundlage
+// für die Backup-Serie im Trophäenschrank.
+export const BACKUP_MONTHS_KEY = 'midpct_backup_months';
+export const BACKUP_RECORDED_EVENT = 'midpct-backup-recorded';
+
 export function recordBackupTimestamp(): string {
   const now = new Date().toISOString();
   try {
     localStorage.setItem(BACKUP_TIMESTAMP_KEY, now);
+    const months = getBackupMonths();
+    const month = now.slice(0, 7);
+    if (!months.includes(month)) {
+      localStorage.setItem(BACKUP_MONTHS_KEY, JSON.stringify([...months, month].sort()));
+    }
   } catch {
     // Ignore storage quota errors
   }
+  try {
+    window.dispatchEvent(new Event(BACKUP_RECORDED_EVENT));
+  } catch {
+    // Kein window (z. B. Tests)
+  }
   return now;
+}
+
+export function getBackupMonths(): string[] {
+  try {
+    const raw = localStorage.getItem(BACKUP_MONTHS_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+    const months = Array.isArray(parsed)
+      ? parsed.filter((m): m is string => typeof m === 'string' && /^\d{4}-\d{2}$/.test(m))
+      : [];
+    // Bestand vor Einführung des Verlaufs: letzte Sicherung übernehmen
+    const last = localStorage.getItem(BACKUP_TIMESTAMP_KEY);
+    if (last && !months.includes(last.slice(0, 7))) months.push(last.slice(0, 7));
+    return months.sort();
+  } catch {
+    return [];
+  }
 }
 
 export function getLastBackupTimestamp(): string | null {
@@ -1115,6 +1148,45 @@ export interface ProjectAchievement {
   description: string;
   unlocked: boolean;
   progressLabel: string;
+  tier?: AchievementTier | null; // aktuell erreichte Stufe (nur Stufen-Abzeichen)
+  nextTier?: { tier: AchievementTier; threshold: number } | null;
+  hidden?: boolean; // verstecktes Abzeichen: bis zur Freischaltung verdeckt
+}
+
+export const TIER_ORDER: AchievementTier[] = ['bronze', 'silber', 'gold'];
+export const TIER_LABEL: Record<AchievementTier, string> = {
+  bronze: 'Bronze',
+  silber: 'Silber',
+  gold: 'Gold',
+};
+
+export interface TierThresholds {
+  bronze: number;
+  silber: number;
+  gold: number;
+}
+
+/** Höchste erreichte Stufe für einen Zählwert (null = noch keine Stufe). */
+export function resolveTier(value: number, thresholds: TierThresholds): AchievementTier | null {
+  let reached: AchievementTier | null = null;
+  for (const tier of TIER_ORDER) {
+    if (value >= thresholds[tier]) reached = tier;
+  }
+  return reached;
+}
+
+/** Nächste noch nicht erreichte Stufe samt Schwelle (null = Gold erreicht). */
+export function resolveNextTier(
+  value: number,
+  thresholds: TierThresholds
+): { tier: AchievementTier; threshold: number } | null {
+  const next = TIER_ORDER.find((tier) => value < thresholds[tier]);
+  return next ? { tier: next, threshold: thresholds[next] } : null;
+}
+
+function tieredFields(value: number, thresholds: TierThresholds) {
+  const tier = resolveTier(value, thresholds);
+  return { unlocked: tier !== null, tier, nextTier: resolveNextTier(value, thresholds) };
 }
 
 export function evaluateProjectAchievements(params: {
@@ -1125,8 +1197,11 @@ export function evaluateProjectAchievements(params: {
   usecases: UseCase[];
   oekoprofitCheckups: OekoprofitCheckup[];
   settings: SystemSettings;
+  streaks?: ComplianceStreaks; // optional: aktiviert Serien-Abzeichen
+  auditChain?: { valid: boolean; checkedCount: number }; // optional: für „Revisionsfest"
 }): ProjectAchievement[] {
-  const { personal, rechnungen, zas, vergaben, usecases, oekoprofitCheckups, settings } = params;
+  const { personal, rechnungen, zas, vergaben, usecases, oekoprofitCheckups, settings, streaks, auditChain } =
+    params;
 
   // 1. Erster Booster gezündet
   const boosterRechnung = rechnungen.some((r) => {
@@ -1139,10 +1214,25 @@ export function evaluateProjectAchievements(params: {
       (ff >= 37000 || (linkedVergabe && linkedVergabe.auftragswert >= 37000))
     );
   });
-  const boosterVergabeLinked = vergaben.some(
+  const boosterVergaben = vergaben.filter(
     (v) => v.bafaFreigabe && v.auftragswert >= 37000 && Boolean(v.useCaseId)
   );
-  const boosterUnlocked = boosterRechnung || boosterVergabeLinked;
+  const boosterVergabeIds = new Set(boosterVergaben.map((v) => v.id));
+  // Belege zählen nur, wenn ihre Vergabe nicht schon als Booster gezählt wurde
+  const boosterRechnungenExtra = rechnungen.filter((r) => {
+    if (r.vergabeId && boosterVergabeIds.has(r.vergabeId)) return false;
+    const pos = mapKategorieToProfiPosition(r.kostenkategorie, r.profiPosition);
+    const ff = getFoerderfaehigerRechnungsBetrag(r, settings.vorsteuerabzugsberechtigt);
+    const linkedVergabe = vergaben.find((v) => v.id === r.vergabeId);
+    return (
+      pos === '0835' &&
+      Boolean(r.useCaseId) &&
+      (ff >= 37000 || (linkedVergabe && linkedVergabe.auftragswert >= 37000))
+    );
+  });
+  const boosterCount = boosterVergaben.length + boosterRechnungenExtra.length;
+  // Mindestens 1, sobald die bisherige Bedingung erfüllt ist (Abwärtskompatibilität)
+  const boosterValue = boosterRechnung ? Math.max(boosterCount, 1) : boosterCount;
 
   // 2. Cent-Präzision (ZA Zeile 19 matches computed value to 0.00 €)
   const valMap = validateZaChain(zas);
@@ -1194,21 +1284,65 @@ export function evaluateProjectAchievements(params: {
   // 7. Jahresabschluss-Trophäe
   const boss = computeBossEventKassenschluss({ zas, rechnungen });
 
+  // Versteckte Abzeichen
+  const mapStages = usecases.map((u) => getUseCaseMapStage(u, vergaben));
+  const rurKorridorKomplett = usecases.length >= 3 && mapStages.every((s) => s >= 2);
+  const submittedZas = zas.filter((z) => z.status === 'Eingereicht' || z.status === 'Abgerechnet');
+  const vollstaendigeAkte =
+    submittedZas.length >= 3 &&
+    submittedZas.every((z) => z.belegVollstaendig && valMap[z.id]?.isChainValid);
+  const revisionsfest = Boolean(auditChain && auditChain.valid && auditChain.checkedCount >= 100);
+
+  const BOOSTER_TIERS: TierThresholds = { bronze: 1, silber: 4, gold: 12 };
+  const CENT_TIERS: TierThresholds = { bronze: 1, silber: 3, gold: 6 };
+  const BACKUP_TIERS: TierThresholds = { bronze: 1, silber: 3, gold: 6 };
+  const TEMPO_TIERS: TierThresholds = { bronze: 5, silber: 15, gold: 30 };
+  const KETTE_TIERS: TierThresholds = { bronze: 3, silber: 6, gold: 12 };
+
+  const backupFields = streaks
+    ? tieredFields(streaks.backup.best, BACKUP_TIERS)
+    : { unlocked: backupMonthly, tier: null, nextTier: null };
+
+  const streakAchievements: ProjectAchievement[] = streaks
+    ? [
+        {
+          id: 'beleg-tempo',
+          title: 'Fristgerechte Erfassung',
+          category: 'Serie · Belege',
+          description:
+            'Belege in Folge höchstens 5 Werktage nach Rechnungsdatum erfasst (1 Joker pro Serie). Stufen bei 5 / 15 / 30.',
+          ...tieredFields(streaks.belegTempo.best, TEMPO_TIERS),
+          progressLabel: `Rekord ${streaks.belegTempo.best} · aktuell ${streaks.belegTempo.current} in Folge`,
+        },
+        {
+          id: 'za-kette',
+          title: 'Lückenlose ZA-Kette',
+          category: 'Serie · profi-online',
+          description:
+            'Eingereichte Zahlungsanforderungen in Folge mit gültiger Kette (Spalte 2). Stufen bei 3 / 6 / 12.',
+          ...tieredFields(streaks.zaKette.best, KETTE_TIERS),
+          progressLabel: `Rekord ${streaks.zaKette.best} · aktuell ${streaks.zaKette.current} ZAs in Folge`,
+        },
+      ]
+    : [];
+
   return [
     {
       id: 'first-booster',
-      title: 'Erster Booster gezündet',
+      title: 'Booster gezündet',
       category: 'Industrie-Transfer',
-      description: '37.000-€-Vergabe oder -Beleg (Pos. 0835) mit Use-Case verknüpft und freigegeben.',
-      unlocked: boosterUnlocked,
-      progressLabel: boosterUnlocked ? 'Freigeschaltet' : '0 / 1 Booster belegt',
+      description:
+        '37.000-€-Vergaben oder -Belege (Pos. 0835) mit Use-Case verknüpft und freigegeben. Stufen bei 1 / 4 / 12 Boostern.',
+      ...tieredFields(boosterValue, BOOSTER_TIERS),
+      progressLabel: `${boosterValue} / 12 Booster belegt`,
     },
     {
       id: 'cent-precision',
       title: 'Cent-Präzision',
       category: 'profi-online',
-      description: 'Eingereichte ZA (Zeile 19) entspricht exakt bis auf 0,00 € der Kettenberechnung.',
-      unlocked: centExactZas.length > 0,
+      description:
+        'Eingereichte ZAs (Zeile 19) entsprechen exakt bis auf 0,00 € der Kettenberechnung. Stufen bei 1 / 3 / 6 ZAs.',
+      ...tieredFields(centExactZas.length, CENT_TIERS),
       progressLabel: `${centExactZas.length} / ${zas.length} ZAs cent-exakt`,
     },
     {
@@ -1243,9 +1377,15 @@ export function evaluateProjectAchievements(params: {
       id: 'backup-waechter',
       title: 'Backup-Wächter',
       category: 'Datensicherheit',
-      description: 'Mindestens 1 JSON-Snapshot oder Offline-HTML-Export im laufenden Monat erstellt.',
-      unlocked: backupMonthly,
-      progressLabel: backupMonthly ? 'Diesen Monat gesichert' : 'Export ausstehend',
+      description: streaks
+        ? 'Jeden Monat mindestens 1 JSON-Snapshot oder Offline-HTML-Export (1 Joker pro Serie). Stufen bei 1 / 3 / 6 Monaten in Folge.'
+        : 'Mindestens 1 JSON-Snapshot oder Offline-HTML-Export im laufenden Monat erstellt.',
+      ...backupFields,
+      progressLabel: streaks
+        ? `${backupMonthly ? 'Diesen Monat gesichert' : 'Export ausstehend'} · Rekord ${streaks.backup.best} Monate`
+        : backupMonthly
+        ? 'Diesen Monat gesichert'
+        : 'Export ausstehend',
     },
     {
       id: 'kassenschluss-trophy',
@@ -1254,6 +1394,36 @@ export function evaluateProjectAchievements(params: {
       description: 'Alle 3 Phasen der Jahresabschluss-Prüfung vor dem 15.11. abgeschlossen.',
       unlocked: boss.trophyUnlocked,
       progressLabel: `${boss.progressPct} % abgeschlossen`,
+    },
+    ...streakAchievements,
+    {
+      id: 'rur-korridor-komplett',
+      title: 'Rur-Korridor komplett',
+      category: 'Verstecktes Abzeichen',
+      description: 'Alle Use-Cases der Transformations-Karte sind mindestens im Pilotbetrieb (min. 3).',
+      unlocked: rurKorridorKomplett,
+      hidden: true,
+      progressLabel: `${mapStages.filter((s) => s >= 2).length} / ${usecases.length} Kacheln im Pilot`,
+    },
+    {
+      id: 'vollstaendige-akte',
+      title: 'Vollständige Akte',
+      category: 'Verstecktes Abzeichen',
+      description: 'Mindestens 3 eingereichte ZAs – alle mit vollständigen Belegen und gültiger Kette.',
+      unlocked: vollstaendigeAkte,
+      hidden: true,
+      progressLabel: `${submittedZas.length} ZAs eingereicht`,
+    },
+    {
+      id: 'revisionsfest',
+      title: 'Revisionsfest',
+      category: 'Verstecktes Abzeichen',
+      description: 'Mindestens 100 lückenlos verkettete, unveränderte GoBD-Audit-Einträge.',
+      unlocked: revisionsfest,
+      hidden: true,
+      progressLabel: auditChain
+        ? `${auditChain.checkedCount} Einträge · Kette ${auditChain.valid ? 'gültig' : 'unterbrochen'}`
+        : 'Audit-Kette nicht geprüft',
     },
   ];
 }

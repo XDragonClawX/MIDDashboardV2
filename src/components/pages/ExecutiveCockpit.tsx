@@ -12,7 +12,11 @@ import {
   SystemSettings,
   OekoprofitCheckup,
   EventLogItem,
+  ComplianceStreaks,
+  StreakResult,
 } from '../../types';
+import { applyPersistedUnlocks, DisplayAchievement } from '../../gamification';
+import { TIER_STYLE } from '../AchievementToast';
 import {
   AZA_JAHRE,
   DEFAULT_SETTINGS,
@@ -41,6 +45,7 @@ import {
   computeResourcePipeline,
   computeExecutiveAdvisors,
   computeChronikTimeline,
+  TIER_LABEL,
 } from '../../utils';
 import HexTransformationMap from '../HexTransformationMap';
 import ExecutiveAdvisorsPanel from '../ExecutiveAdvisorsPanel';
@@ -68,6 +73,9 @@ import {
   Award,
   CheckCircle2,
   Flag,
+  Flame,
+  Lock,
+  Sparkles,
 } from 'lucide-react';
 
 export interface CockpitDrilldownFilters {
@@ -97,6 +105,8 @@ interface ExecutiveCockpitProps {
   activeYearLabel: string;
   tasks?: Task[];
   events?: EventLogItem[];
+  achievements?: DisplayAchievement[]; // inkl. dauerhaft gespeicherter Freischaltungen (aus App)
+  streaks?: ComplianceStreaks;
   onUpdateTask?: (id: number, task: Partial<Task>) => void;
   onUpdateUseCase?: (id: number, uc: Partial<UseCase>) => void;
   onNavigateDetail: (page: string, filters: CockpitDrilldownFilters) => void;
@@ -116,6 +126,8 @@ export default function ExecutiveCockpit({
   activeYearLabel,
   tasks = [],
   events = SEED_EVENTS,
+  achievements: achievementsProp,
+  streaks,
   onUpdateTask,
   onUpdateUseCase,
   onNavigateDetail,
@@ -304,18 +316,24 @@ export default function ExecutiveCockpit({
     (u) => u.status === 'aktiv' || u.status === 'in Vorbereitung' || u.status === 'kritisch'
   ).length;
 
-  const achievements = useMemo(
+  // Bevorzugt die App-weite Auswertung (mit Serien & gespeicherten Freischaltungen);
+  // ohne Prop wird wie bisher lokal ausgewertet.
+  const achievements: DisplayAchievement[] = useMemo(
     () =>
-      evaluateProjectAchievements({
-        personal,
-        rechnungen,
-        zas,
-        vergaben,
-        usecases,
-        oekoprofitCheckups,
-        settings,
-      }),
-    [personal, rechnungen, zas, vergaben, usecases, oekoprofitCheckups, settings]
+      achievementsProp ??
+      applyPersistedUnlocks(
+        evaluateProjectAchievements({
+          personal,
+          rechnungen,
+          zas,
+          vergaben,
+          usecases,
+          oekoprofitCheckups,
+          settings,
+        }),
+        []
+      ),
+    [achievementsProp, personal, rechnungen, zas, vergaben, usecases, oekoprofitCheckups, settings]
   );
 
   const bossEvent = useMemo(
@@ -915,7 +933,8 @@ export default function ExecutiveCockpit({
                   <span>Projekt-Trophäenschrank (Operational Mastery)</span>
                 </h2>
                 <p className="text-[11px] text-zinc-500 mt-0.5">
-                  Datengetriebene Meilenstein-Abzeichen aus Live-Belegen, Use-Cases und BAFA-Prüfregeln
+                  Datengetriebene Abzeichen aus Live-Belegen, Use-Cases und BAFA-Prüfregeln – einmal
+                  freigeschaltet, bleiben sie revisionssicher im Audit-Log erhalten
                 </p>
               </div>
               <span className="font-mono text-xs font-bold text-zs-blau-schwarz tabular-nums">
@@ -923,34 +942,146 @@ export default function ExecutiveCockpit({
               </span>
             </div>
 
+            {streaks && (
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <StreakTile
+                  label="Fristgerechte Erfassung"
+                  unit="Belege"
+                  rule="≤ 5 Werktage nach Rechnungsdatum"
+                  streak={streaks.belegTempo}
+                />
+                <StreakTile
+                  label="Backup-Serie"
+                  unit="Monate"
+                  rule="mind. 1 Sicherung pro Monat"
+                  streak={streaks.backup}
+                />
+                <StreakTile
+                  label="ZA-Kette"
+                  unit="ZAs"
+                  rule="eingereicht mit gültiger Kette"
+                  streak={streaks.zaKette}
+                />
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
               {achievements.map((ach) => (
-                <div
-                  key={ach.id}
-                  className={`p-3 rounded-lg border transition-colors ${
-                    ach.unlocked
-                      ? 'border-[#10B981]/50 bg-emerald-50/40'
-                      : 'border-zinc-200 bg-zinc-50/50 opacity-80'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <span className="text-[10px] font-mono text-zinc-400">{ach.category}</span>
-                    <CheckCircle2
-                      className={`w-4 h-4 shrink-0 ${
-                        ach.unlocked ? 'text-[#10B981]' : 'text-zinc-300'
-                      }`}
-                    />
-                  </div>
-                  <div className="font-bold text-xs text-zs-blau-schwarz mt-1">{ach.title}</div>
-                  <p className="text-[11px] text-zinc-500 mt-0.5 leading-snug">{ach.description}</p>
-                  <div className="mt-2 font-mono text-[10px] font-semibold text-zinc-600">
-                    {ach.progressLabel}
-                  </div>
-                </div>
+                <AchievementCard key={ach.id} achievement={ach} />
               ))}
             </div>
           </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Trophäenschrank: Serien-Kachel ──
+function StreakTile({
+  label,
+  unit,
+  rule,
+  streak,
+}: {
+  label: string;
+  unit: string;
+  rule: string;
+  streak: StreakResult;
+}) {
+  const active = streak.current > 0;
+  return (
+    <div
+      className={`p-3 rounded-lg border ${
+        active ? 'border-orange-300/70 bg-orange-50/50' : 'border-zinc-200 bg-zinc-50/50'
+      }`}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500">{label}</span>
+        <Flame className={`w-4 h-4 shrink-0 ${active ? 'text-orange-500' : 'text-zinc-300'}`} aria-hidden="true" />
+      </div>
+      <div className="mt-1 flex items-baseline gap-1.5">
+        <span className="font-display font-bold text-2xl text-zs-blau-schwarz tabular-nums">{streak.current}</span>
+        <span className="text-[11px] text-zinc-500">{unit} in Folge</span>
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-mono text-zinc-500">
+        <span>Rekord {streak.best}</span>
+        <span aria-hidden="true">·</span>
+        <span
+          className={`px-1.5 py-0.5 rounded ${
+            streak.jokerUsed ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+          }`}
+        >
+          {streak.jokerUsed ? 'Joker verbraucht' : '1 Joker frei'}
+        </span>
+      </div>
+      <p className="mt-1.5 text-[10px] text-zinc-400 leading-snug">
+        {streak.total === 0 ? `Noch keine Daten – ${rule}` : rule}
+      </p>
+    </div>
+  );
+}
+
+// ── Trophäenschrank: Abzeichen-Karte (Stufen, Freischaltdatum, versteckt) ──
+function AchievementCard({ achievement: ach }: { achievement: DisplayAchievement }) {
+  const concealed = ach.hidden && !ach.unlocked;
+  const tierStyle = ach.tier ? TIER_STYLE[ach.tier] : null;
+  const dateLabel = ach.tier ? ach.tierUnlockedAt : ach.unlockedAt;
+
+  return (
+    <div
+      className={`p-3 rounded-lg border transition-colors ${
+        ach.unlocked
+          ? tierStyle
+            ? `${tierStyle.ring} bg-white`
+            : 'border-[#10B981]/50 bg-emerald-50/40'
+          : concealed
+          ? 'border-dashed border-zinc-300 bg-zinc-50/50'
+          : 'border-zinc-200 bg-zinc-50/50 opacity-80'
+      }`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-[10px] font-mono text-zinc-400">{ach.category}</span>
+        {concealed ? (
+          <Lock className="w-4 h-4 shrink-0 text-zinc-300" aria-label="Verstecktes Abzeichen" />
+        ) : ach.hidden ? (
+          <Sparkles className="w-4 h-4 shrink-0 text-[#D4A017]" aria-hidden="true" />
+        ) : (
+          <CheckCircle2
+            className={`w-4 h-4 shrink-0 ${ach.unlocked ? 'text-[#10B981]' : 'text-zinc-300'}`}
+            aria-hidden="true"
+          />
+        )}
+      </div>
+
+      <div className="font-bold text-xs text-zs-blau-schwarz mt-1 flex items-center gap-1.5 flex-wrap">
+        <span>{concealed ? '???' : ach.title}</span>
+        {ach.tier && tierStyle && (
+          <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${tierStyle.badge}`}>
+            {TIER_LABEL[ach.tier]}
+          </span>
+        )}
+      </div>
+
+      <p className="text-[11px] text-zinc-500 mt-0.5 leading-snug">
+        {concealed ? 'Verstecktes Abzeichen – wird bei einem besonderen Meilenstein enthüllt.' : ach.description}
+      </p>
+
+      {!concealed && (
+        <div className="mt-2 font-mono text-[10px] font-semibold text-zinc-600">{ach.progressLabel}</div>
+      )}
+
+      {!concealed && ach.nextTier && (
+        <div className="mt-1 font-mono text-[10px] text-zinc-400">
+          Nächste Stufe: {TIER_LABEL[ach.nextTier.tier]} bei {ach.nextTier.threshold}
+        </div>
+      )}
+
+      {ach.unlocked && dateLabel && (
+        <div className="mt-1.5 text-[10px] text-zinc-400">
+          {ach.retroactive ? 'Aus Bestand übernommen am ' : 'Freigeschaltet am '}
+          {formatDate(dateLabel)}
         </div>
       )}
     </div>

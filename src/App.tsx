@@ -15,6 +15,7 @@ import {
   ProfiPositionCode,
   SystemSettings,
   MitarbeiterStamm,
+  AchievementUnlock,
 } from './types';
 import {
   SEED_PERSONAL as INITIAL_PERSONAL,
@@ -47,7 +48,19 @@ import {
   getFoerderfaehigerRechnungsBetrag,
   computeComplianceShield,
   recordBackupTimestamp,
+  evaluateProjectAchievements,
+  getBackupMonths,
+  BACKUP_RECORDED_EVENT,
+  TIER_LABEL,
 } from './utils';
+import {
+  computeComplianceStreaks,
+  mergeAchievementUnlocks,
+  applyPersistedUnlocks,
+  sanitizeUnlocks,
+  unlockKey,
+} from './gamification';
+import AchievementToastStack, { AchievementToastItem } from './components/AchievementToast';
 
 // Lucide icons
 import {
@@ -378,6 +391,65 @@ export default function App() {
     [zas, vergaben, oekoprofitCheckups, rechnungen]
   );
 
+  // ── Gamification Stufe 1: Serien, Stufen & dauerhafte Freischaltungen ──
+  // null = Trophäenschrank wurde noch nie initialisiert (Bestand wird beim ersten Lauf still übernommen)
+  const [achievementUnlocks, setAchievementUnlocks] = useState<AchievementUnlock[] | null>(() =>
+    sanitizeUnlocks(loadFromStorage<unknown>('midpct_achievement_unlocks', null))
+  );
+  // Synchron aktueller Stand, damit doppelte Effekt-Läufe (StrictMode) nichts doppelt protokollieren
+  const unlocksRef = useRef<AchievementUnlock[] | null>(achievementUnlocks);
+  const [achievementToasts, setAchievementToasts] = useState<AchievementToastItem[]>([]);
+  const [backupTick, setBackupTick] = useState(0);
+
+  useEffect(() => {
+    const onBackup = () => setBackupTick((t) => t + 1);
+    window.addEventListener(BACKUP_RECORDED_EVENT, onBackup);
+    return () => window.removeEventListener(BACKUP_RECORDED_EVENT, onBackup);
+  }, []);
+
+  useEffect(() => {
+    if (achievementUnlocks !== null) saveToStorage('midpct_achievement_unlocks', achievementUnlocks);
+  }, [achievementUnlocks]);
+
+  const complianceStreaks = useMemo(
+    () =>
+      computeComplianceStreaks({
+        rechnungen,
+        zas,
+        backupMonths: getBackupMonths(),
+        nowIso: new Date().toISOString(),
+      }),
+    // backupTick: neu berechnen, sobald eine Sicherung erstellt wurde
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rechnungen, zas, backupTick]
+  );
+
+  const projectAchievements = useMemo(
+    () =>
+      evaluateProjectAchievements({
+        personal,
+        rechnungen,
+        zas,
+        vergaben,
+        usecases,
+        oekoprofitCheckups,
+        settings,
+        streaks: complianceStreaks,
+        auditChain: { valid: auditVerify.valid, checkedCount: auditVerify.checkedCount },
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [personal, rechnungen, zas, vergaben, usecases, oekoprofitCheckups, settings, complianceStreaks, auditVerify, backupTick]
+  );
+
+  const displayAchievements = useMemo(
+    () => applyPersistedUnlocks(projectAchievements, achievementUnlocks ?? []),
+    [projectAchievements, achievementUnlocks]
+  );
+
+  const dismissAchievementToast = React.useCallback((key: string) => {
+    setAchievementToasts((prev) => prev.filter((t) => t.key !== key));
+  }, []);
+
   const navigateDirectFromMenu = (page: string) => {
     setPersonalQuarterFilter('all');
     setRechnungenKategorieFilter('all');
@@ -477,6 +549,11 @@ export default function App() {
     if (snap.usecases) setUsecases(snap.usecases);
     if (snap.deletedUcs) setDeletedUcs(snap.deletedUcs);
     if (snap.logs && !logSnapshot) setLogs(ensureAuditLogChain(snap.logs));
+    const snapUnlocks = sanitizeUnlocks(snap.achievementUnlocks);
+    if (snapUnlocks) {
+      unlocksRef.current = snapUnlocks;
+      setAchievementUnlocks(snapUnlocks);
+    }
     if (logSnapshot) {
       writeLog('SYSTEM', 'SNAPSHOT_LOAD', 'Datenbanksnapshot erfolgreich eingespielt.');
     }
@@ -502,6 +579,7 @@ export default function App() {
     usecases,
     deletedUcs,
     logs,
+    achievementUnlocks: achievementUnlocks ?? [],
   });
 
   // Initial server hydration check (only when served via http(s) and no offline injection)
@@ -613,6 +691,7 @@ export default function App() {
     usecases,
     deletedUcs,
     logs,
+    achievementUnlocks,
   ]);
 
   const handleSyncWithServer = async (direction: 'push' | 'pull'): Promise<{ ok: boolean; message: string }> => {
@@ -701,6 +780,63 @@ export default function App() {
     });
   };
 
+  // Neu erreichte Abzeichen dauerhaft speichern, im GoBD-Audit-Log festhalten und anzeigen.
+  // Nur in der Projekt-Steuerung aktiv – die neutrale Prüfungsansicht bleibt frei von Spielelementen.
+  useEffect(() => {
+    if (!gamificationEnabled) return;
+    const previous = unlocksRef.current;
+    const isFirstRun = previous === null;
+    const { unlocks, newlyUnlocked } = mergeAchievementUnlocks(
+      previous ?? [],
+      projectAchievements,
+      new Date().toISOString(),
+      isFirstRun
+    );
+    if (!isFirstRun && newlyUnlocked.length === 0) return;
+
+    unlocksRef.current = unlocks;
+    setAchievementUnlocks(unlocks);
+
+    if (isFirstRun) {
+      if (unlocks.length > 0) {
+        writeLog(
+          'GAMIFICATION',
+          'TROPHY_INIT',
+          `Trophäenschrank initialisiert: ${newlyUnlocked.length} bereits erreichte Abzeichen aus dem Datenbestand übernommen.`,
+          { entityType: 'Achievement', afterJson: JSON.stringify(unlocks) }
+        );
+      }
+      return;
+    }
+
+    const byId = new Map(projectAchievements.map((a) => [a.id, a]));
+    newlyUnlocked.forEach((u) => {
+      const achievement = byId.get(u.achievementId);
+      const title = achievement?.title ?? u.achievementId;
+      writeLog(
+        'GAMIFICATION',
+        'ACHIEVEMENT_UNLOCK',
+        `Abzeichen „${title}"${u.tier ? ` (${TIER_LABEL[u.tier]})` : ''} freigeschaltet.`,
+        { entityType: 'Achievement', afterJson: JSON.stringify(u) }
+      );
+    });
+    setAchievementToasts((prev) => [
+      ...prev,
+      ...newlyUnlocked.map((u) => {
+        const achievement = byId.get(u.achievementId);
+        return {
+          key: `${unlockKey(u.achievementId, u.tier)}@${u.unlockedAt}`,
+          title: achievement?.title ?? u.achievementId,
+          description: achievement?.description ?? '',
+          tier: u.tier,
+          hidden: achievement?.hidden,
+        };
+      }),
+    ]);
+    // writeLog ist eine stabile Hilfsfunktion; unlocksRef liefert den aktuellen Stand
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectAchievements, gamificationEnabled]);
+
   // ── APP GLOBAL HANDLERS ──
 
   const handleUpdateSettings = (patch: Partial<SystemSettings>) => {
@@ -785,7 +921,10 @@ export default function App() {
   };
 
   // Rechnungen Handlers
-  const handleAddRechnung = (beleg: Omit<Rechnungsbeleg, 'id'>): { ok: boolean; error?: string } => {
+  const handleAddRechnung = (
+    beleg: Omit<Rechnungsbeleg, 'id'>,
+    opts?: { source?: 'import' }
+  ): { ok: boolean; error?: string } => {
     const gate = checkRechnungComplianceGate(beleg.vergabeId, beleg.status);
     if (!gate.ok) return gate;
 
@@ -795,6 +934,9 @@ export default function App() {
       ...beleg,
       id: nextId,
       foerderfaehigerBetrag,
+      // Erfassungszeitpunkt für die Serie „Fristgerechte Erfassung".
+      // Importierte Altbelege bleiben ohne Zeitpunkt und werden nicht bewertet.
+      createdAt: beleg.createdAt ?? (opts?.source === 'import' ? undefined : new Date().toISOString()),
     };
     setRechnungen((prev) => [...prev, item]);
     writeLog(
@@ -1399,7 +1541,7 @@ export default function App() {
         pdfHash: row.pdfHash,
         foerderfaehig: row.foerderfaehig === undefined ? true : row.foerderfaehig,
         status: 'ENTWURF',
-      });
+      }, { source: 'import' });
     });
   };
 
@@ -2119,6 +2261,8 @@ export default function App() {
                 activeYear={activeYear}
                 activeYearLabel={activeYearLabel}
                 tasks={tasks}
+                achievements={displayAchievements}
+                streaks={complianceStreaks}
                 onUpdateTask={handleUpdateTask}
                 onUpdateUseCase={handleUpdateUseCase}
                 onNavigateDetail={handleCockpitDrilldown}
@@ -2331,6 +2475,11 @@ export default function App() {
           </div>
         </main>
       </div>
+
+      {/* Hinweise zu neu freigeschalteten Abzeichen (nur Projekt-Steuerung) */}
+      {gamificationEnabled && (
+        <AchievementToastStack items={achievementToasts} onDismiss={dismissAchievementToast} />
+      )}
 
       {/* ── MODAL: GLOBAL SEARCH MODAL (Ctrl+K overlay) ── */}
       {searchOpen && (

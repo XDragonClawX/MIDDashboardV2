@@ -299,3 +299,26 @@ export interface OekoprofitCheckup {
   status: 'Geplant' | 'In Beratung' | 'Reporting offen' | 'Abgeschlossen';
   notizen?: string;
 }
+
+// ── Gamification Stufe 1: Stufen, Serien, dauerhafte Freischaltungen ──
+export type AchievementTier = 'bronze' | 'silber' | 'gold';
+
+export interface StreakResult {
+  current: number; // aktuelle Serie (neueste Einträge rückwärts gezählt)
+  best: number; // längste Serie im gesamten Verlauf
+  jokerUsed: boolean; // wurde in der aktuellen Serie die Schonfrist verbraucht?
+  total: number; // Anzahl bewerteter Einträge
+}
+
+export interface ComplianceStreaks {
+  belegTempo: StreakResult; // Belege ≤ 5 Werktage nach Rechnungsdatum erfasst
+  backup: StreakResult; // Monate mit mindestens einer Datensicherung
+  zaKette: StreakResult; // eingereichte ZAs mit gültiger Kette (Spalte 2)
+}
+
+export interface AchievementUnlock {
+  achievementId: string;
+  tier: AchievementTier | null; // null = Abzeichen ohne Stufen
+  unlockedAt: string; // ISO-Zeitstempel der Freischaltung
+  retroactive?: boolean; // beim ersten Start aus Bestandsdaten übernommen
+}
