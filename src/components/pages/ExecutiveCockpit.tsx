@@ -60,6 +60,7 @@ import { BudgetFocus, BudgetTab } from './BudgetPage';
 import { AbrufStatusFilter, MittelabrufeSubTab } from './MittelabrufePage';
 import {
   BarChart,
+  Legend,
   Bar,
   XAxis,
   YAxis,
@@ -479,6 +480,128 @@ export default function ExecutiveCockpit({
         </button>
       </div>
 
+      {/* 3 Kern-KPI-Karten mit direktem Drilldown */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+        <button
+          type="button"
+          onClick={() =>
+            onNavigateDetail('budget', {
+              budgetTab: 'jahre',
+              budgetFocus: 'bundesmittel',
+            })
+          }
+          className="text-left bg-white p-6 rounded-xl border border-zinc-200 hover:border-zs-blau-schwarz transition-all flex flex-col justify-between cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zs-blau-schwarz focus-visible:ring-offset-2"
+        >
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-mono font-bold text-zinc-500 uppercase tracking-wider">
+                Bundesmittel-Saldo (90 %)
+              </span>
+              <span className="text-xs font-mono text-zinc-600 group-hover:text-zs-blau-schwarz flex items-center gap-1">
+                <span>Budget</span>
+                <ArrowRight className="w-3 h-3" />
+              </span>
+            </div>
+            <div className="text-3xl font-bold text-zs-blau-schwarz mt-3">
+              {formatEuro(bafaRest, 2)}
+            </div>
+            <p className="text-xs text-zinc-500 mt-1 tabular-nums">
+              Restbudget Bund aus {formatEuro(planSplit.bund90, 2)} ({bafaQuotePct.toFixed(1)} % abgerufen)
+            </p>
+          </div>
+          <div
+            className="mt-4 w-full bg-zinc-100 h-2 rounded-full overflow-hidden"
+            role="progressbar"
+            aria-label="Bundesmittel abgerufen"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(Math.min(100, Math.max(0, bafaQuotePct)))}
+          >
+            <div
+              className="bg-zs-blau-schwarz h-full transition-all duration-300"
+              style={{ width: `${bafaQuotePct}%` }}
+            />
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() =>
+            onNavigateDetail('budget', {
+              budgetTab: 'kategorie',
+              budgetFocus: 'eigenanteil',
+            })
+          }
+          className="text-left bg-white p-6 rounded-xl border border-zinc-200 hover:border-[#BA8B68] transition-all flex flex-col justify-between cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zs-blau-schwarz focus-visible:ring-offset-2"
+        >
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-mono font-bold text-zinc-500 uppercase tracking-wider">
+                Eigenanteil (10 % WIN.DN)
+              </span>
+              <span className="text-xs font-mono text-zinc-600 group-hover:text-zs-blau-schwarz flex items-center gap-1">
+                <span>Nachweis</span>
+                <ArrowRight className="w-3 h-3" />
+              </span>
+            </div>
+            <div className="text-3xl font-bold text-zs-blau-schwarz mt-3">
+              {formatEuro(istSplit.eigen10, 2)}
+            </div>
+            <p className="text-xs text-zinc-500 mt-1 tabular-nums">
+              Erbrachter Eigenanteil von {formatEuro(planSplit.eigen10, 2)} Plan-Soll ({eigenQuotePct.toFixed(1)} %)
+            </p>
+          </div>
+          <div
+            className="mt-4 w-full bg-zinc-100 h-2 rounded-full overflow-hidden"
+            role="progressbar"
+            aria-label="Eigenanteil erbracht"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={Math.round(Math.min(100, Math.max(0, eigenQuotePct)))}
+          >
+            <div
+              className="bg-[#BA8B68] h-full transition-all duration-300"
+              style={{ width: `${eigenQuotePct}%` }}
+            />
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() =>
+            onNavigateDetail('mittelabrufe', {
+              mittelabrufeSubTab: 'abrufe',
+              mittelabrufeStatusFilter: 'open',
+            })
+          }
+          className="text-left bg-white p-6 rounded-xl border border-zinc-200 hover:border-[#58B49D] transition-all flex flex-col justify-between cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zs-blau-schwarz focus-visible:ring-offset-2"
+        >
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-mono font-bold text-zinc-500 uppercase tracking-wider">
+                Offene Abrufe &amp; Auszahlungen
+              </span>
+              <span className="text-xs font-mono text-zinc-600 group-hover:text-zs-blau-schwarz flex items-center gap-1">
+                <span>Abrufe</span>
+                <ArrowRight className="w-3 h-3" />
+              </span>
+            </div>
+            <div className="text-3xl font-bold text-zs-blau-schwarz mt-3">
+              {formatEuro(offeneForderungen, 2)}
+            </div>
+            <p className="text-xs text-zinc-500 mt-1 tabular-nums">
+              {latestZa
+                ? `Letzte ZA (${latestZa.bezeichnung}): ${formatEuro(latestZa.zeile19Anforderung, 2)} (Z. 19)`
+                : `Eingegangen: ${formatEuro(abrufEingegangen, 2)} / ${formatEuro(abrufBeantragt, 2)}`}
+            </p>
+          </div>
+          <div className="mt-4 flex items-center justify-between text-[11px] font-mono text-zinc-500 border-t border-zinc-100 pt-2.5">
+            <span>Kumuliertes Ist (100 %):</span>
+            <span className="font-bold text-zs-blau-schwarz tabular-nums">{formatEuro(istGesamt, 2)}</span>
+          </div>
+        </button>
+      </div>
+
       {/* Berater-Stab (Simulation Mode) ODER schlichte Compliance-Warnleisten (Gremien-Stealth-Modus) */}
       {gamificationEnabled ? (
         <ExecutiveAdvisorsPanel
@@ -563,114 +686,6 @@ export default function ExecutiveCockpit({
         onUpdateUseCase={onUpdateUseCase}
         showProgress={gamificationEnabled}
       />
-
-      {/* 3 Kern-KPI-Karten mit direktem Drilldown */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        <button
-          type="button"
-          onClick={() =>
-            onNavigateDetail('budget', {
-              budgetTab: 'jahre',
-              budgetFocus: 'bundesmittel',
-            })
-          }
-          className="text-left bg-white p-6 rounded-xl border border-zinc-200 hover:border-zs-blau-schwarz transition-all flex flex-col justify-between cursor-pointer group"
-        >
-          <div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-mono font-bold text-zinc-500 uppercase tracking-wider">
-                Bundesmittel-Saldo (90 %)
-              </span>
-              <span className="text-xs font-mono text-zs-blau-schwarz opacity-60 group-hover:opacity-100 flex items-center gap-1">
-                <span>Budget</span>
-                <ArrowRight className="w-3 h-3" />
-              </span>
-            </div>
-            <div className="font-mono text-3xl font-bold text-zs-blau-schwarz tabular-nums mt-3">
-              {formatEuro(bafaRest, 2)}
-            </div>
-            <p className="text-xs text-zinc-500 mt-1 tabular-nums">
-              Restbudget Bund aus {formatEuro(planSplit.bund90, 2)} ({bafaQuotePct.toFixed(1)} % abgerufen)
-            </p>
-          </div>
-          <div className="mt-4 w-full bg-zinc-100 h-2 rounded-full overflow-hidden">
-            <div
-              className="bg-zs-blau-schwarz h-full transition-all duration-300"
-              style={{ width: `${bafaQuotePct}%` }}
-            />
-          </div>
-        </button>
-
-        <button
-          type="button"
-          onClick={() =>
-            onNavigateDetail('budget', {
-              budgetTab: 'kategorie',
-              budgetFocus: 'eigenanteil',
-            })
-          }
-          className="text-left bg-white p-6 rounded-xl border border-zinc-200 hover:border-[#BA8B68] transition-all flex flex-col justify-between cursor-pointer group"
-        >
-          <div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-mono font-bold text-zinc-500 uppercase tracking-wider">
-                Eigenanteil (10 % WIN.DN)
-              </span>
-              <span className="text-xs font-mono text-[#BA8B68] opacity-80 group-hover:opacity-100 flex items-center gap-1">
-                <span>Nachweis</span>
-                <ArrowRight className="w-3 h-3" />
-              </span>
-            </div>
-            <div className="font-mono text-3xl font-bold text-[#BA8B68] tabular-nums mt-3">
-              {formatEuro(istSplit.eigen10, 2)}
-            </div>
-            <p className="text-xs text-zinc-500 mt-1 tabular-nums">
-              Erbrachter Eigenanteil von {formatEuro(planSplit.eigen10, 2)} Plan-Soll ({eigenQuotePct.toFixed(1)} %)
-            </p>
-          </div>
-          <div className="mt-4 w-full bg-zinc-100 h-2 rounded-full overflow-hidden">
-            <div
-              className="bg-[#BA8B68] h-full transition-all duration-300"
-              style={{ width: `${eigenQuotePct}%` }}
-            />
-          </div>
-        </button>
-
-        <button
-          type="button"
-          onClick={() =>
-            onNavigateDetail('mittelabrufe', {
-              mittelabrufeSubTab: 'abrufe',
-              mittelabrufeStatusFilter: 'open',
-            })
-          }
-          className="text-left bg-white p-6 rounded-xl border border-zinc-200 hover:border-[#58B49D] transition-all flex flex-col justify-between cursor-pointer group"
-        >
-          <div>
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-mono font-bold text-zinc-500 uppercase tracking-wider">
-                Offene Abrufe &amp; Auszahlungen
-              </span>
-              <span className="text-xs font-mono text-[#58B49D] opacity-80 group-hover:opacity-100 flex items-center gap-1">
-                <span>Abrufe</span>
-                <ArrowRight className="w-3 h-3" />
-              </span>
-            </div>
-            <div className="font-mono text-3xl font-bold text-[#58B49D] tabular-nums mt-3">
-              {formatEuro(offeneForderungen, 2)}
-            </div>
-            <p className="text-xs text-zinc-500 mt-1 tabular-nums">
-              {latestZa
-                ? `Letzte ZA (${latestZa.bezeichnung}): ${formatEuro(latestZa.zeile19Anforderung, 2)} (Z. 19)`
-                : `Eingegangen: ${formatEuro(abrufEingegangen, 2)} / ${formatEuro(abrufBeantragt, 2)}`}
-            </p>
-          </div>
-          <div className="mt-4 flex items-center justify-between text-[11px] font-mono text-zinc-500 border-t border-zinc-100 pt-2.5">
-            <span>Kumuliertes Ist (100 %):</span>
-            <span className="font-bold text-zs-blau-schwarz tabular-nums">{formatEuro(istGesamt, 2)}</span>
-          </div>
-        </button>
-      </div>
 
       {/* Ressourcen-Fluss (Anno-Sankey-Pipeline & Engpass-Detektor) */}
       {gamificationEnabled && (
@@ -775,26 +790,43 @@ export default function ExecutiveCockpit({
               {settings.vorsteuerabzugsberechtigt ? 'Förderbasis: Netto (§ 15 UStG)' : 'Förderbasis: Brutto'} &middot; {activeYearLabel}
             </p>
           </div>
-          <div className="flex-grow min-h-[240px]">
+          <div
+            className="flex-grow min-h-[260px]"
+            role="img"
+            aria-label={`Balkendiagramm Soll und Ist je profi-Position, ${activeYearLabel}. Die Werte stehen in der Tabelle links.`}
+          >
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={profiChartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e4e4e7" vertical={false} />
-                <XAxis dataKey="code" tick={{ fontSize: 11, fill: '#52525b' }} />
+              <BarChart data={profiChartData} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barGap={2}>
+                <CartesianGrid stroke="#eceef1" vertical={false} />
+                <XAxis
+                  dataKey="code"
+                  tick={{ fontSize: 11, fill: '#52525b' }}
+                  axisLine={{ stroke: '#d4d4d8' }}
+                  tickLine={false}
+                />
                 <YAxis
-                  tick={{ fontSize: 10, fill: '#71717a' }}
+                  tick={{ fontSize: 11, fill: '#52525b' }}
                   tickFormatter={(v) => `${Math.round(v / 1000)}k`}
                   width={40}
+                  axisLine={false}
+                  tickLine={false}
                 />
                 <Tooltip
+                  cursor={{ fill: 'rgba(4,20,34,0.06)' }}
                   formatter={(value: any) => formatEuro(Number(value), 2)}
+                  labelFormatter={(code: any) => {
+                    const row = profiChartData.find((r) => r.code === code);
+                    return row ? `Pos. ${row.code} · ${row.name}` : `Pos. ${code}`;
+                  }}
                   contentStyle={{
                     fontSize: '12px',
                     borderRadius: '8px',
                     borderColor: '#e4e4e7',
                   }}
                 />
-                <Bar dataKey="Plan" fill="#e4e4e7" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="Ist" fill="#041422" radius={[4, 4, 0, 0]} />
+                <Legend iconType="plainline" wrapperStyle={{ fontSize: 11, paddingTop: 6 }} />
+                <Bar dataKey="Plan" fill="#8b95a5" radius={[4, 4, 0, 0]} maxBarSize={22} />
+                <Bar dataKey="Ist" fill="#041422" radius={[4, 4, 0, 0]} maxBarSize={22} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -809,7 +841,7 @@ export default function ExecutiveCockpit({
             <div className="text-[11px] font-mono text-zinc-500 uppercase font-bold">
               Kassenschluss 15.11. &middot; Verfalls-Radar Pos. 0835
             </div>
-            <div className="font-mono text-2xl font-bold text-zs-blau-schwarz tabular-nums mt-2">
+            <div className="text-2xl font-bold text-zs-blau-schwarz mt-2">
               {formatEuro(unspentAlert2026.rest0835, 2)}
             </div>
             <p className="text-xs text-zinc-500 mt-1">
