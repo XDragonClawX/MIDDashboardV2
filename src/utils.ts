@@ -16,10 +16,54 @@ export const STORAGE_KEYS = {
   events: 'midpct_events',
 };
 
+// Schema-Version der im localStorage abgelegten Daten. Erhöhen, sobald sich
+// die Struktur eines gespeicherten Werts inkompatibel ändert, und in
+// migrateStorage() die Migration ergänzen.
+export const STORAGE_SCHEMA_VERSION = 1;
+
+interface StorageEnvelope<T> {
+  __v: number;
+  data: T;
+}
+
+function isEnvelope<T>(value: unknown): value is StorageEnvelope<T> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { __v?: unknown }).__v === 'number' &&
+    'data' in value
+  );
+}
+
+/**
+ * Migriert einen geladenen Wert von seiner gespeicherten Version auf die
+ * aktuelle Schema-Version. Aktuell gibt es nur Version 1; künftige
+ * Breaking-Changes werden hier schrittweise hochgezogen.
+ */
+function migrateStorage<T>(fromVersion: number, data: T): T {
+  let version = fromVersion;
+  let migrated = data;
+  // Beispiel für künftige Migrationen:
+  // if (version === 1) { migrated = ...; version = 2; }
+  void version;
+  return migrated;
+}
+
 export function loadLocalStorage<T>(key: string, defaultValue: T): T {
   try {
     const item = localStorage.getItem(key);
-    return item ? JSON.parse(item) : defaultValue;
+    if (!item) return defaultValue;
+
+    const parsed: unknown = JSON.parse(item);
+
+    // Neues, versioniertes Format
+    if (isEnvelope<T>(parsed)) {
+      return migrateStorage<T>(parsed.__v, parsed.data);
+    }
+
+    // Altbestand ohne Versionshülle: unverändert übernehmen. Wird beim
+    // nächsten Speichern automatisch ins versionierte Format überführt.
+    return parsed as T;
   } catch (error) {
     console.error(`Error loading key "${key}" from localStorage`, error);
     return defaultValue;
@@ -28,7 +72,8 @@ export function loadLocalStorage<T>(key: string, defaultValue: T): T {
 
 export function saveLocalStorage<T>(key: string, value: T): void {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    const envelope: StorageEnvelope<T> = { __v: STORAGE_SCHEMA_VERSION, data: value };
+    localStorage.setItem(key, JSON.stringify(envelope));
   } catch (error) {
     console.error(`Error saving key "${key}" to localStorage`, error);
   }
@@ -58,6 +103,10 @@ export function getQuarterFromMonth(month: number): number {
   return Math.ceil(month / 3);
 }
 
+// Obergrenze für persistierte Audit-Einträge, damit der localStorage nicht
+// unbegrenzt wächst und irgendwann das Quota sprengt.
+export const MAX_AUDIT_ENTRIES = 1000;
+
 export function addAuditLog(
   entityType: string,
   entityId: number,
@@ -80,7 +129,9 @@ export function addAuditLog(
       createdAt: new Date().toISOString(),
     };
     logs.unshift(newItem);
-    saveLocalStorage(STORAGE_KEYS.audit, logs);
+    // Älteste Einträge verwerfen, sobald das Limit überschritten wird.
+    const capped = logs.length > MAX_AUDIT_ENTRIES ? logs.slice(0, MAX_AUDIT_ENTRIES) : logs;
+    saveLocalStorage(STORAGE_KEYS.audit, capped);
   } catch (err) {
     console.error('Failed to write audit log', err);
   }

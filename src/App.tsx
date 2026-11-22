@@ -9,6 +9,8 @@ import {
   Buchung,
   AuditLog,
   Task,
+  UseCase,
+  UCNotiz,
 } from './types';
 import {
   SEED_PERSONAL as INITIAL_PERSONAL,
@@ -18,7 +20,7 @@ import {
   SEED_PARTNER as INITIAL_PARTNERS,
   SEED_TASKS as INITIAL_TASKS,
 } from './data';
-import { loadLocalStorage as loadFromStorage, saveLocalStorage as saveToStorage } from './utils';
+import { loadLocalStorage as loadFromStorage, saveLocalStorage as saveToStorage, MAX_AUDIT_ENTRIES } from './utils';
 
 const INITIAL_MATCHES: PartnerMatch[] = [];
 const INITIAL_BUCHUNGEN: Buchung[] = [];
@@ -125,7 +127,7 @@ export default function App() {
   useEffect(() => { saveToStorage('midpct_mitarbeiter_list', mitarbeiterList); }, [mitarbeiterList]);
 
   // Use Case Notes state (Record<usecaseId, Note[]>)
-  const [ucNotes, setUcNotes] = useState<{ [key: number]: any[] }>(() =>
+  const [ucNotes, setUcNotes] = useState<{ [key: number]: UCNotiz[] }>(() =>
     loadFromStorage('midpct_uc_notes', {})
   );
 
@@ -193,9 +195,9 @@ export default function App() {
   }, []);
 
   // Use Case Seed structures
-  const [usecases, setUsecases] = useState<any[]>(() => {
-    const loaded = loadFromStorage('midpct_usecases', []);
-    const filtered = loaded.filter((uc: any) => {
+  const [usecases, setUsecases] = useState<UseCase[]>(() => {
+    const loaded = loadFromStorage<UseCase[]>('midpct_usecases', []);
+    const filtered = loaded.filter((uc) => {
       if (!uc) return false;
       const batchStr = String(uc.batch || '').replace(/\s+/g, '').toLowerCase();
       if (batchStr === 'batch1' || batchStr.includes('batch1')) {
@@ -236,7 +238,9 @@ export default function App() {
         details,
         user: 'WIN.DN-Controller',
       };
-      return [entry, ...prev];
+      const next = [entry, ...prev];
+      // Älteste Einträge verwerfen, damit der localStorage nicht unbegrenzt wächst.
+      return next.length > MAX_AUDIT_ENTRIES ? next.slice(0, MAX_AUDIT_ENTRIES) : next;
     });
   };
 
@@ -393,10 +397,10 @@ export default function App() {
   };
 
   // Use Case Page Handlers
-  const handleAddUseCase = (uc: any) => {
+  const handleAddUseCase = (uc: Omit<UseCase, 'id'> & { id?: number }) => {
     setUsecases((prev) => {
       // Clean up uc.id if it was passed from backend to avoid conflicting ID structures
-      const { id: dummyId, ...ucData } = uc;
+      const { id: _dummyId, ...ucData } = uc;
       const nextId = prev.length > 0 ? Math.max(...prev.map((x) => x.id)) + 1 : 1;
       const item = { ...ucData, id: nextId };
       
@@ -411,7 +415,7 @@ export default function App() {
     });
   };
 
-  const handleUpdateUseCase = (id: number, uc: Partial<any>) => {
+  const handleUpdateUseCase = (id: number, uc: Partial<UseCase>) => {
     setUsecases((prev) =>
       prev.map((u) => {
         if (u.id === id) {
@@ -443,11 +447,12 @@ export default function App() {
   const handleAddUcNote = (ucId: number, note: { text: string; type: string }) => {
     const notesList = ucNotes[ucId] || [];
     const nextId = notesList.length > 0 ? Math.max(...notesList.map((n) => n.id)) + 1 : 101;
-    const newNote = {
+    const newNote: UCNotiz = {
       id: nextId,
       text: note.text,
-      type: note.type,
+      type: note.type as UCNotiz['type'],
       date: new Date().toISOString().slice(0, 10),
+      author: 'WIN.DN-Controller',
     };
 
     setUcNotes((prev) => ({
@@ -573,8 +578,9 @@ export default function App() {
         );
       }
     } else if (type !== 'NONE') {
-      const newId = matches.length > 0 ? Math.max(...matches.map((x) => x.id)) + 1 : 1;
-      setMatches((prev) => [...prev, { id: newId, industryId, providerId, type }]);
+      // Matches werden über das Paar industryId/providerId identifiziert, eine
+      // eigene id wird nicht benötigt.
+      setMatches((prev) => [...prev, { industryId, providerId, type }]);
     }
 
     const indPartner = partners.find((p) => p.id === industryId);
