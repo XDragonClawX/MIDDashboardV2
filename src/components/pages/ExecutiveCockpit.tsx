@@ -49,7 +49,9 @@ import {
 } from '../../utils';
 import HexTransformationMap from '../HexTransformationMap';
 import { BossEventsPanel, WeeklyMissionsPanel } from '../MissionBoard';
+import { CampaignPanel, TeamGoalsPanel } from '../CampaignPanel';
 import { computeBossEvents } from '../../bossEvents';
+import { computeCampaign, computeTeamGoals } from '../../campaign';
 import { computeWeeklyMissions, todayISO } from '../../missions';
 import ExecutiveAdvisorsPanel from '../ExecutiveAdvisorsPanel';
 import ResourceSankeyPipeline from '../ResourceSankeyPipeline';
@@ -377,6 +379,16 @@ export default function ExecutiveCockpit({
         rechnungen,
       }),
     [tasks, vergaben, usecases, zas, rechnungen]
+  );
+
+  const campaign = useMemo(
+    () => computeCampaign({ periods: AZA_JAHRE, today: todayISO(), rechnungen, zas, usecases, vergaben }),
+    [rechnungen, zas, usecases, vergaben]
+  );
+
+  const teamGoals = useMemo(
+    () => computeTeamGoals({ today: todayISO(), usecases, vergaben, oekoprofitCheckups }),
+    [usecases, vergaben, oekoprofitCheckups]
   );
 
   const openFromGamification = (page: string, subTab?: string) =>
@@ -914,6 +926,14 @@ export default function ExecutiveCockpit({
         <div className="space-y-6">
           <ChronikScrubber frames={chronikFrames} />
           <WeeklyMissionsPanel state={weeklyMissions} onOpen={openFromGamification} />
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+            <div className="lg:col-span-7">
+              <CampaignPanel chapters={campaign} />
+            </div>
+            <div className="lg:col-span-5">
+              <TeamGoalsPanel goals={teamGoals} />
+            </div>
+          </div>
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
           {/* Boss-Events: Kassenschluss, Mittelabruf-Frist, Vor-Ort-Prüfung */}
           <div className="lg:col-span-4">
