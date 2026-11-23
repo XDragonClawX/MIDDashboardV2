@@ -41,7 +41,7 @@ export function WeeklyMissionsPanel({ state, onOpen }: MissionProps) {
             <Target className="w-4 h-4 text-[#10B981]" aria-hidden="true" />
             <span>Wochen-Missionen · KW {isoWeek(state.weekStart)}</span>
           </h2>
-          <p className="text-[11px] text-zinc-500 mt-0.5">
+          <p className="text-xs text-zinc-500 mt-0.5">
             {formatDate(state.weekStart)} – {formatDate(state.weekEnd)} · automatisch aus Aufgaben, Vergabe-,
             Use-Case- und ZA-Fristen
           </p>
@@ -51,7 +51,7 @@ export function WeeklyMissionsPanel({ state, onOpen }: MissionProps) {
             {state.doneCount} / {state.total} erledigt
           </div>
           {state.overdueCount > 0 && (
-            <div className="text-[10px] font-mono font-bold text-red-600">{state.overdueCount} überfällig</div>
+            <div className="text-xs font-mono font-bold text-red-600">{state.overdueCount} überfällig</div>
           )}
         </div>
       </div>
@@ -93,10 +93,10 @@ export function WeeklyMissionsPanel({ state, onOpen }: MissionProps) {
                   >
                     {m.title}
                   </span>
-                  <span className="block text-[10px] text-zinc-500 truncate">{m.detail}</span>
+                  <span className="block text-xs text-zinc-500 truncate">{m.detail}</span>
                 </span>
                 <span
-                  className={`shrink-0 text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${
+                  className={`shrink-0 text-xs font-mono font-bold px-1.5 py-0.5 rounded ${
                     m.done
                       ? 'bg-emerald-100 text-emerald-800'
                       : m.overdue
@@ -118,7 +118,7 @@ export function WeeklyMissionsPanel({ state, onOpen }: MissionProps) {
         <button
           type="button"
           onClick={() => setShowAll(true)}
-          className="text-[11px] font-mono font-bold text-[#0f766e] hover:underline cursor-pointer"
+          className="text-xs font-mono font-bold text-[#0f766e] hover:underline cursor-pointer"
         >
           + {hidden} weitere anzeigen
         </button>
@@ -127,14 +127,14 @@ export function WeeklyMissionsPanel({ state, onOpen }: MissionProps) {
         <button
           type="button"
           onClick={() => setShowAll(false)}
-          className="text-[11px] font-mono font-bold text-zinc-500 hover:underline cursor-pointer"
+          className="text-xs font-mono font-bold text-zinc-500 hover:underline cursor-pointer"
         >
           weniger anzeigen
         </button>
       )}
 
       {state.allDone && (
-        <div className="flex items-center gap-1.5 text-[11px] font-bold text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">
+        <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 rounded-lg px-3 py-2">
           <CalendarCheck className="w-3.5 h-3.5" aria-hidden="true" /> Alle Wochen-Missionen erledigt – sauber gearbeitet.
         </div>
       )}
@@ -164,7 +164,7 @@ export function BossEventsPanel({ events, onOpen }: BossProps) {
               role="tab"
               aria-selected={e.id === boss.id}
               onClick={() => setActiveId(e.id)}
-              className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono font-bold cursor-pointer ${
+              className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-mono font-bold cursor-pointer ${
                 e.id === boss.id ? 'bg-[#58B49D] text-[#041422]' : 'bg-white/10 text-zinc-300 hover:bg-white/20'
               }`}
             >
@@ -174,7 +174,7 @@ export function BossEventsPanel({ events, onOpen }: BossProps) {
           ))}
         </div>
 
-        <div className="flex items-center justify-between text-[11px] font-mono text-[#58B49D] pt-1">
+        <div className="flex items-center justify-between text-xs font-mono text-[#58B49D] pt-1">
           <span className="inline-flex items-center gap-1.5 font-bold">
             <Flag className="w-3.5 h-3.5" aria-hidden="true" /> {boss.title}
           </span>
@@ -184,7 +184,7 @@ export function BossEventsPanel({ events, onOpen }: BossProps) {
           {boss.subtitle}: {boss.progressPct} %
         </div>
         {boss.daysLeft !== null && (
-          <div className="text-[11px] text-zinc-400">
+          <div className="text-xs text-zinc-400">
             {boss.daysLeft >= 0 ? `Noch ${boss.daysLeft} Tage` : `${Math.abs(boss.daysLeft)} Tage über Frist`}
           </div>
         )}
@@ -200,19 +200,19 @@ export function BossEventsPanel({ events, onOpen }: BossProps) {
         </div>
         <div className="space-y-1.5 pt-1">
           {boss.phases.map((p) => (
-            <div key={p.id} className="text-[11px] text-zinc-300">
+            <div key={p.id} className="text-xs text-zinc-300">
               <div className="flex items-center justify-between">
                 <span className="truncate pr-2">{p.title}</span>
                 <span className={`font-mono font-bold shrink-0 ${p.completed ? 'text-[#10B981]' : 'text-amber-300'}`}>
                   {p.completed ? 'Erledigt' : 'Offen'}
                 </span>
               </div>
-              <div className="text-[10px] text-zinc-500 leading-snug">{p.description}</div>
+              <div className="text-xs text-zinc-400 leading-snug">{p.description}</div>
             </div>
           ))}
         </div>
         {boss.trophyUnlocked && (
-          <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#10B981] pt-1">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-[#10B981] pt-1">
             <Trophy className="w-3.5 h-3.5" aria-hidden="true" /> Boss besiegt
           </div>
         )}

@@ -144,12 +144,12 @@ export default function ResourceSankeyPipeline({
             <Layers className="w-4 h-4 text-[#00B4D8]" />
             <span>4-Stufen Fördermittel-Fluss &amp; Sankey-Pipeline</span>
           </h2>
-          <p className="text-[11px] text-zinc-500 mt-0.5">
+          <p className="text-xs text-zinc-500 mt-0.5">
             AZA-Budget &rarr; Gebundenes Obligo &rarr; Belegtes Ist (inkl. 10-%-Eigenanteil-Katalysator) &rarr; Abgerufene BAFA-Mittel ({activeYearLabel})
           </p>
         </div>
 
-        <div className="inline-flex items-center gap-1.5 text-[11px] font-mono text-zinc-600 tabular-nums">
+        <div className="inline-flex items-center gap-1.5 text-xs font-mono text-zinc-600 tabular-nums">
           <FlaskConical className="w-3.5 h-3.5 text-[#BA8B68]" />
           <span>
             Katalysator: <strong className="text-zs-blau-schwarz">90 € Bund</strong> +{' '}
@@ -173,7 +173,7 @@ export default function ResourceSankeyPipeline({
                   <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
                   <div className="text-xs text-amber-950">
                     <div className="font-bold">Engpass-Detektor · {bn.label}</div>
-                    <div className="text-[11px] text-amber-800 mt-0.5 tabular-nums">
+                    <div className="text-xs text-amber-800 mt-0.5 tabular-nums">
                       {bn.message}
                     </div>
                   </div>
@@ -470,7 +470,7 @@ export default function ResourceSankeyPipeline({
           {/* Interactive Stage Inspector Strip inside dark Sankey frame */}
           <div className="mt-3 pt-3 border-t border-white/10 flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
             <div className="space-y-0.5">
-              <div className="flex flex-wrap items-center gap-2 font-mono text-[10px] text-[#00B4D8] uppercase font-bold">
+              <div className="flex flex-wrap items-center gap-2 font-mono text-xs text-[#00B4D8] uppercase font-bold">
                 <span>{activeMeta.step}</span>
                 <span aria-hidden="true">&middot;</span>
                 <span className="text-zinc-300 tabular-nums">
@@ -480,7 +480,7 @@ export default function ResourceSankeyPipeline({
               <div className="font-bold text-white">
                 {activeMeta.title}: <span className="font-mono text-zs-signal-gelb tabular-nums">{formatEuro(activeMeta.amount, 2)}</span>
               </div>
-              <p className="text-[11px] text-zinc-300">{activeMeta.note}</p>
+              <p className="text-xs text-zinc-300">{activeMeta.note}</p>
             </div>
             <button
               type="button"
@@ -517,7 +517,7 @@ export default function ResourceSankeyPipeline({
                 }`}
               >
                 <div>
-                  <div className="text-[10px] font-mono font-bold uppercase text-zinc-500">
+                  <div className="text-xs font-mono font-bold uppercase text-zinc-500">
                     {meta.step}
                   </div>
                   <div className="font-display font-bold text-sm text-zs-blau-schwarz mt-0.5">
@@ -526,7 +526,7 @@ export default function ResourceSankeyPipeline({
                   <div className="font-mono text-lg font-bold text-zs-blau-schwarz tabular-nums mt-1.5">
                     {formatEuro(meta.amount, 2)}
                   </div>
-                  <p className="text-[11px] text-zinc-500 mt-0.5">{meta.subtitle}</p>
+                  <p className="text-xs text-zinc-500 mt-0.5">{meta.subtitle}</p>
                 </div>
                 <div className="mt-3 w-full h-1.5 rounded-full bg-zinc-200 overflow-hidden">
                   <div className={`h-full ${barColor}`} style={{ width: `${barWidth}%` }} />
@@ -538,7 +538,7 @@ export default function ResourceSankeyPipeline({
 
         {/* profi-online Silos Breakdown (0812–0843) */}
         <div className="rounded-xl border border-zinc-200 bg-zinc-50/60 p-3.5">
-          <div className="flex items-center justify-between text-[11px] font-mono text-zinc-500 mb-2.5">
+          <div className="flex items-center justify-between text-xs font-mono text-zinc-500 mb-2.5">
             <span className="font-bold uppercase text-zs-deep-teal">
               Silo-Durchfluss je profi-online Position (0812–0843)
             </span>
@@ -571,13 +571,13 @@ export default function ResourceSankeyPipeline({
                       : 'bg-white border-zinc-200 hover:border-[#0A2B32]'
                   }`}
                 >
-                  <div className="flex items-center justify-between text-[10px] font-mono">
+                  <div className="flex items-center justify-between text-xs font-mono">
                     <strong className="text-zs-blau-schwarz">{pos.displayCode}</strong>
                     <span className={hasStau ? 'text-amber-700 font-bold' : 'text-[#10B981] font-bold'}>
                       {pct.toFixed(0)} %
                     </span>
                   </div>
-                  <div className="text-[11px] font-semibold text-zinc-700 truncate mt-0.5">
+                  <div className="text-xs font-semibold text-zinc-700 truncate mt-0.5">
                     {pos.label}
                   </div>
                   <div className="mt-1.5 w-full h-1.5 rounded-full bg-zinc-200 overflow-hidden">
@@ -586,7 +586,7 @@ export default function ResourceSankeyPipeline({
                       style={{ width: `${pct}%` }}
                     />
                   </div>
-                  <div className="text-[10px] font-mono text-zinc-500 mt-1 tabular-nums">
+                  <div className="text-xs font-mono text-zinc-500 mt-1 tabular-nums">
                     {hasStau ? `Stau: ${formatEuro(pos.stau, 0)}` : `Ist: ${formatEuro(pos.ist, 0)}`}
                   </div>
                 </button>

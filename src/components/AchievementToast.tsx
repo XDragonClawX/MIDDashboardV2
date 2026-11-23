@@ -63,7 +63,7 @@ export default function AchievementToastStack({ items, onDismiss }: Props) {
                 type="button"
                 onClick={() => onDismiss(item.key)}
                 aria-label="Hinweis schließen"
-                className="absolute top-2 right-2 p-1 rounded text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 cursor-pointer"
+                className="absolute top-2 right-2 p-1 rounded text-zinc-500 hover:text-zinc-700 hover:bg-zinc-100 cursor-pointer"
               >
                 <X className="w-3.5 h-3.5" />
               </button>
@@ -81,18 +81,18 @@ export default function AchievementToastStack({ items, onDismiss }: Props) {
                   )}
                 </motion.div>
                 <div className="min-w-0">
-                  <div className="text-[10px] font-mono font-bold uppercase tracking-wider text-[#10B981]">
+                  <div className="text-xs font-mono font-bold uppercase tracking-wider text-[#10B981]">
                     {item.hidden ? 'Verstecktes Abzeichen entdeckt' : 'Abzeichen freigeschaltet'}
                   </div>
                   <div className="font-bold text-sm text-zs-blau-schwarz leading-tight mt-0.5">
                     {item.title}
                     {item.tier && style && (
-                      <span className={`ml-1.5 align-middle text-[10px] font-mono px-1.5 py-0.5 rounded ${style.badge}`}>
+                      <span className={`ml-1.5 align-middle text-xs font-mono px-1.5 py-0.5 rounded ${style.badge}`}>
                         {TIER_LABEL[item.tier]}
                       </span>
                     )}
                   </div>
-                  <p className="text-[11px] text-zinc-500 leading-snug mt-1">{item.description}</p>
+                  <p className="text-xs text-zinc-500 leading-snug mt-1">{item.description}</p>
                 </div>
               </div>
             </motion.div>

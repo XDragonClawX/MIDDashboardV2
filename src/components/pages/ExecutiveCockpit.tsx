@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   PersonalEintrag,
   Rechnungsbeleg,
@@ -50,6 +50,7 @@ import {
 import HexTransformationMap from '../HexTransformationMap';
 import { BossEventsPanel, WeeklyMissionsPanel } from '../MissionBoard';
 import { CampaignPanel, TeamGoalsPanel } from '../CampaignPanel';
+import { CockpitTabs, TodayStrip, type CockpitView, type TodayItem } from '../TodayStrip';
 import { computeBossEvents } from '../../bossEvents';
 import { computeCampaign, computeTeamGoals } from '../../campaign';
 import { computeWeeklyMissions, todayISO } from '../../missions';
@@ -395,6 +396,77 @@ export default function ExecutiveCockpit({
   const openFromGamification = (page: string, subTab?: string) =>
     onNavigateDetail(page, subTab ? { mittelabrufeSubTab: subTab as MittelabrufeSubTab } : {});
 
+  const views: CockpitView[] = gamificationEnabled ? ['ueberblick', 'finanzen', 'spiel'] : ['ueberblick', 'finanzen'];
+  const [viewState, setViewState] = useState<CockpitView>(() => {
+    try {
+      const saved = localStorage.getItem('midpct_cockpit_view');
+      if (saved === 'finanzen' || saved === 'spiel' || saved === 'ueberblick') return saved;
+    } catch {
+      /* Speicher nicht verfügbar */
+    }
+    return 'ueberblick';
+  });
+  const view: CockpitView = views.includes(viewState) ? viewState : 'ueberblick';
+  const changeView = (v: CockpitView) => {
+    setViewState(v);
+    try {
+      localStorage.setItem('midpct_cockpit_view', v);
+    } catch {
+      /* Speicher nicht verfügbar */
+    }
+  };
+
+  const todayItems = useMemo<TodayItem[]>(() => {
+    const items: TodayItem[] = [];
+    for (const alert of kassenbestandAlerts) {
+      const overdue = alert.daysUntilDeadline !== null && alert.daysUntilDeadline < 0;
+      items.push({
+        id: `kb-${alert.zaId}`,
+        severity: overdue ? 'high' : 'medium',
+        title: overdue ? `2-Monats-Frist überschritten: ${alert.bezeichnung}` : `2-Monats-Frist läuft: ${alert.bezeichnung}`,
+        detail:
+          alert.daysUntilDeadline === null
+            ? undefined
+            : overdue
+            ? `seit ${Math.abs(alert.daysUntilDeadline)} Tagen – Zinsrisiko`
+            : `noch ${alert.daysUntilDeadline} Tage (Fristende ${formatDate(alert.twoMonthDeadline)})`,
+        page: 'mittelabrufe',
+        subTab: 'za-rechner',
+      });
+    }
+    if (chainErrors.length > 0) {
+      items.push({
+        id: 'chain',
+        severity: 'high',
+        title: `ZA-Ketten-Abweichung in ${chainErrors.length} ZA`,
+        detail: 'Spalte 2 weicht von der Vor-ZA ab',
+        page: 'mittelabrufe',
+        subTab: 'za-rechner',
+      });
+    }
+    if (overBudgetPositions.length > 0) {
+      items.push({
+        id: 'overbudget',
+        severity: 'high',
+        title: `Über 120 % Ansatz: ${overBudgetPositions.map((p) => `Pos. ${p.displayCode}`).join(', ')}`,
+        detail: 'ANBest-P-Umschichtungsgrenze prüfen',
+        page: 'budget',
+      });
+    }
+    const overdueMissions = weeklyMissions.missions.filter((m) => m.overdue);
+    for (const m of overdueMissions.slice(0, 2)) {
+      items.push({
+        id: `m-${m.id}`,
+        severity: 'medium',
+        title: m.title,
+        detail: `${Math.abs(m.daysLeft)} Tage überfällig`,
+        page: m.targetPage,
+        subTab: m.subTab,
+      });
+    }
+    return items;
+  }, [kassenbestandAlerts, chainErrors, overBudgetPositions, weeklyMissions]);
+
   const unlockedCount = achievements.filter((a) => a.unlocked).length;
 
   const resourcePipeline = useMemo(
@@ -450,7 +522,7 @@ export default function ExecutiveCockpit({
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-zinc-200 pb-4">
         <div>
-          <span className="text-[11px] font-mono font-semibold text-[#58B49D] uppercase tracking-wider">
+          <span className="text-xs font-mono font-semibold text-[#58B49D] uppercase tracking-wider">
             STARK FKZ {PROFI_STARK_FKZ} &middot; {azaMeta.shortLabel}
           </span>
           <h1 className="font-display text-2xl sm:text-3xl font-extrabold text-zs-blau-schwarz tracking-tight mt-0.5">
@@ -459,7 +531,7 @@ export default function ExecutiveCockpit({
           <p className="text-xs text-zinc-500 mt-1 flex flex-wrap items-center gap-2">
             <span>WIN.DN Fördermittelsteuerung &middot; {activeYearLabel} &middot; 90 % Bund / 10 % Eigenanteil</span>
             {settings.privacyMode && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zs-blau-schwarz text-zs-signal-gelb font-mono text-[10px] font-bold">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-zs-blau-schwarz text-zs-signal-gelb font-mono text-xs font-bold">
                 <EyeOff className="w-3 h-3" />
                 Privacy-Modus aktiv
               </span>
@@ -479,6 +551,8 @@ export default function ExecutiveCockpit({
           <ArrowRight className="w-3.5 h-3.5 text-zs-signal-gelb" />
         </button>
       </div>
+
+      <TodayStrip items={todayItems} onOpen={openFromGamification} />
 
       {/* 3 Kern-KPI-Karten mit direktem Drilldown */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
@@ -595,80 +669,25 @@ export default function ExecutiveCockpit({
                 : `Eingegangen: ${formatEuro(abrufEingegangen, 2)} / ${formatEuro(abrufBeantragt, 2)}`}
             </p>
           </div>
-          <div className="mt-4 flex items-center justify-between text-[11px] font-mono text-zinc-500 border-t border-zinc-100 pt-2.5">
+          <div className="mt-4 flex items-center justify-between text-xs font-mono text-zinc-500 border-t border-zinc-100 pt-2.5">
             <span>Kumuliertes Ist (100 %):</span>
             <span className="font-bold text-zs-blau-schwarz tabular-nums">{formatEuro(istGesamt, 2)}</span>
           </div>
         </button>
       </div>
 
+      <CockpitTabs view={view} views={views} onChange={changeView} />
+
+      <div id="cockpit-panel" role="tabpanel" aria-labelledby={`cockpit-tab-${view}`} className="space-y-6">
+        {view === 'ueberblick' && (
+          <>
       {/* Berater-Stab (Simulation Mode) ODER schlichte Compliance-Warnleisten (Gremien-Stealth-Modus) */}
       {gamificationEnabled ? (
         <ExecutiveAdvisorsPanel
           advisors={executiveAdvisors}
           onNavigate={(page, filters) => onNavigateDetail(page, filters)}
         />
-      ) : (
-        (kassenbestandAlerts.length > 0 || chainErrors.length > 0 || overBudgetPositions.length > 0) && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          {kassenbestandAlerts.map((alert) => (
-            <button
-              key={`kb-${alert.zaId}`}
-              type="button"
-              onClick={() =>
-                onNavigateDetail('mittelabrufe', { mittelabrufeSubTab: 'za-rechner' })
-              }
-              className="text-left bg-amber-50 border border-amber-300 rounded-xl p-3.5 flex items-start gap-3 hover:border-amber-500 transition-colors cursor-pointer"
-            >
-              <Clock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-              <div className="text-xs text-amber-950 leading-relaxed">
-                <div className="font-bold">
-                  ANBest-P 2-Monats-Verwendungsfrist: Positiver Kassenbestand (+{formatEuro(alert.zeile16Kassenbestand, 2)})
-                </div>
-                <div className="text-[11px] text-amber-800 mt-0.5 font-mono tabular-nums">
-                  {alert.bezeichnung} &middot; Fristende: {formatDate(alert.twoMonthDeadline)}{' '}
-                  {alert.daysUntilDeadline !== null &&
-                    (alert.daysUntilDeadline >= 0
-                      ? `(noch ${alert.daysUntilDeadline} Tage)`
-                      : `(seit ${Math.abs(alert.daysUntilDeadline)} Tagen überschritten – Zinsrisiko!)`)}
-                </div>
-              </div>
-            </button>
-          ))}
-
-          {(chainErrors.length > 0 || overBudgetPositions.length > 0) && (
-            <button
-              type="button"
-              onClick={() =>
-                onNavigateDetail(chainErrors.length > 0 ? 'mittelabrufe' : 'budget', {
-                  mittelabrufeSubTab: 'za-rechner',
-                  budgetTab: 'kategorie',
-                })
-              }
-              className="text-left bg-red-50 border border-red-200 rounded-xl p-3.5 flex items-start gap-3 hover:border-red-400 transition-colors cursor-pointer"
-            >
-              <ShieldAlert className="w-4 h-4 text-red-700 shrink-0 mt-0.5" />
-              <div className="text-xs text-red-950 leading-relaxed">
-                {chainErrors.length > 0 && (
-                  <div className="font-bold">
-                    ZA-Ketten-Abweichung erkannt ({chainErrors.length} ZA): Spalte 2 weicht von Vor-ZA ab.
-                  </div>
-                )}
-                {overBudgetPositions.length > 0 && (
-                  <div className="font-bold">
-                    ANBest-P 20-%-Umschichtungswächter:{' '}
-                    {overBudgetPositions.map((p) => `Pos. ${p.displayCode}`).join(', ')} über 120 % Ansatz.
-                  </div>
-                )}
-                <div className="text-[11px] text-red-700 mt-0.5">
-                  Klicken für direkte Prüfung &amp; Gegensteuerung im Fachmodul.
-                </div>
-              </div>
-            </button>
-          )}
-        </div>
-        )
-      )}
+      ) : null}
 
       {/* Zentrales Cockpit-Visual: 2.5D-Transformationskarte Düren */}
       <HexTransformationMap
@@ -687,6 +706,130 @@ export default function ExecutiveCockpit({
         showProgress={gamificationEnabled}
       />
 
+      {/* Bottom Operational Strip: Verfalls-Radar, Vergaben/Freigaben, Use-Cases & Aufgaben */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* Verfalls-Radar & Übertragungs-Hinweis */}
+        <div className="bg-white rounded-xl border border-zinc-200 p-5 flex flex-col justify-between space-y-3">
+          <div>
+            <div className="text-xs font-mono text-zinc-500 uppercase font-bold">
+              Kassenschluss 15.11. &middot; Verfalls-Radar Pos. 0835
+            </div>
+            <div className="text-2xl font-bold text-zs-blau-schwarz mt-2">
+              {formatEuro(unspentAlert2026.rest0835, 2)}
+            </div>
+            <p className="text-xs text-zinc-500 mt-1">
+              Offenes Restbudget in Vergaben/Fremdleistungen ({unspentAlert2026.ratioOpen.toFixed(1)} % unverausgabt). Bei Nichtabruf bis 15.11. rechtzeitig Übertragungsantrag (Referat 424) stellen.
+            </p>
+          </div>
+          <button
+            onClick={() =>
+              onNavigateDetail('budget', { budgetTab: 'kategorie' })
+            }
+            className="text-xs font-semibold text-zs-blau-schwarz hover:underline flex items-center gap-1 cursor-pointer self-start"
+          >
+            <span>Übertragungs-Assistent öffnen</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {/* Vergaben & Pilot-Use-Cases */}
+        <div className="bg-white rounded-xl border border-zinc-200 p-5 flex flex-col justify-between space-y-3">
+          <div>
+            <div className="text-xs font-mono text-zinc-500 uppercase font-bold">
+              Compliance &amp; Transformationspiloten
+            </div>
+            <div className="grid grid-cols-2 gap-3 mt-3">
+              <button
+                type="button"
+                onClick={() => onNavigateDetail('vergaben', {})}
+                className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 hover:border-zs-blau-schwarz text-left cursor-pointer"
+              >
+                <div className="text-xs font-mono text-zinc-500 uppercase">Ohne BAFA-Freigabe</div>
+                <div className={`text-xl font-mono font-bold tabular-nums mt-0.5 ${vergabenOhneBafa > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
+                  {vergabenOhneBafa}
+                </div>
+              </button>
+              <button
+                type="button"
+                onClick={() => onNavigateDetail('usecase', {})}
+                className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 hover:border-zs-blau-schwarz text-left cursor-pointer"
+              >
+                <div className="text-xs font-mono text-zinc-500 uppercase">Aktive Use-Cases</div>
+                <div className="text-xl font-mono font-bold text-zs-blau-schwarz tabular-nums mt-0.5">
+                  {activePilotsCount}
+                </div>
+              </button>
+            </div>
+          </div>
+          {vergabenOhneBafa > 0 && (
+            <div className="text-xs text-red-700 flex items-center gap-1.5 font-medium">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              <span>Rechnungen zu unfreigegebenen Vergaben sind durch Compliance-Gate gesperrt.</span>
+            </div>
+          )}
+        </div>
+
+        {/* Offene Aufgaben */}
+        <div className="bg-white rounded-xl border border-zinc-200 p-5 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-mono text-zinc-500 uppercase font-bold">
+                Fällige Aufgaben ({offeneTasks.length})
+              </span>
+              <button
+                onClick={() =>
+                  onNavigateDetail('aufgaben', { aufgabenStatus: 'offen' })
+                }
+                className="text-xs font-semibold text-zs-blau-schwarz hover:underline cursor-pointer"
+              >
+                Alle
+              </button>
+            </div>
+            {offeneTasks.length === 0 ? (
+              <p className="text-xs text-zinc-500 font-mono py-4 text-center">
+                Keine offenen Aufgaben.
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {offeneTasks.slice(0, 3).map((t) => (
+                  <div
+                    key={t.id}
+                    className="flex items-start gap-2.5 text-xs p-2 rounded-lg bg-zinc-50 border border-zinc-100"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onUpdateTask?.(t.id, { status: 'erledigt' })}
+                      className="text-zinc-500 hover:text-[#58B49D] cursor-pointer mt-0.5"
+                      title="Als erledigt markieren"
+                    >
+                      <Square className="w-4 h-4" />
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-zs-blau-schwarz truncate">{t.title}</div>
+                      {t.dueDate && (
+                        <div className="text-xs font-mono text-zinc-500">
+                          Fällig: {formatDate(t.dueDate)}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          {tasks.some((t) => t.status === 'erledigt') && (
+            <div className="mt-3 pt-2 border-t border-zinc-100 text-xs text-zinc-500 flex items-center gap-1.5 font-mono">
+              <CheckSquare className="w-3.5 h-3.5 text-[#58B49D]" />
+              <span>{tasks.filter((t) => t.status === 'erledigt').length} erledigt</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+          </>
+        )}
+        {view === 'finanzen' && (
+          <>
       {/* Ressourcen-Fluss (Anno-Sankey-Pipeline & Engpass-Detektor) */}
       {gamificationEnabled && (
         <ResourceSankeyPipeline
@@ -705,18 +848,18 @@ export default function ExecutiveCockpit({
               <h2 className="font-display font-bold text-base text-zs-blau-schwarz">
                 profi-online Kostenpositionen (0812–0843)
               </h2>
-              <p className="text-[11px] text-zinc-500 mt-0.5">
+              <p className="text-xs text-zinc-500 mt-0.5">
                 {azaMeta.label} &middot; Klicken für Drilldown
               </p>
             </div>
-            <span className="text-[11px] font-mono text-zinc-500 tabular-nums">
+            <span className="text-xs font-mono text-zinc-500 tabular-nums">
               Gesamt-Plan: {formatEuro(planGesamt, 2)}
             </span>
           </div>
           <div className="overflow-x-auto flex-grow">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-[10px] text-zinc-500 uppercase">
+                <tr className="border-b border-zinc-200 bg-zinc-50 font-mono text-xs text-zinc-500 uppercase">
                   <th className="py-2.5 px-4">Pos.</th>
                   <th className="py-2.5 px-3">Bezeichnung</th>
                   <th className="py-2.5 px-3 text-right">AZA-Plan</th>
@@ -749,7 +892,7 @@ export default function ExecutiveCockpit({
                       </td>
                       <td className="py-3 px-3">
                         <div className="font-semibold text-zinc-800">{pos.bezeichnung}</div>
-                        <div className="text-[11px] text-zinc-400 truncate max-w-[260px]">
+                        <div className="text-xs text-zinc-500 truncate max-w-[260px]">
                           {pos.beschreibung}
                         </div>
                       </td>
@@ -786,7 +929,7 @@ export default function ExecutiveCockpit({
             <h2 className="font-display font-bold text-base text-zs-blau-schwarz">
               Soll / Ist je profi-Position
             </h2>
-            <p className="text-[11px] text-zinc-500">
+            <p className="text-xs text-zinc-500">
               {settings.vorsteuerabzugsberechtigt ? 'Förderbasis: Netto (§ 15 UStG)' : 'Förderbasis: Brutto'} &middot; {activeYearLabel}
             </p>
           </div>
@@ -833,126 +976,10 @@ export default function ExecutiveCockpit({
         </div>
       </div>
 
-      {/* Bottom Operational Strip: Verfalls-Radar, Vergaben/Freigaben, Use-Cases & Aufgaben */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        {/* Verfalls-Radar & Übertragungs-Hinweis */}
-        <div className="bg-white rounded-xl border border-zinc-200 p-5 flex flex-col justify-between space-y-3">
-          <div>
-            <div className="text-[11px] font-mono text-zinc-500 uppercase font-bold">
-              Kassenschluss 15.11. &middot; Verfalls-Radar Pos. 0835
-            </div>
-            <div className="text-2xl font-bold text-zs-blau-schwarz mt-2">
-              {formatEuro(unspentAlert2026.rest0835, 2)}
-            </div>
-            <p className="text-xs text-zinc-500 mt-1">
-              Offenes Restbudget in Vergaben/Fremdleistungen ({unspentAlert2026.ratioOpen.toFixed(1)} % unverausgabt). Bei Nichtabruf bis 15.11. rechtzeitig Übertragungsantrag (Referat 424) stellen.
-            </p>
-          </div>
-          <button
-            onClick={() =>
-              onNavigateDetail('budget', { budgetTab: 'kategorie' })
-            }
-            className="text-xs font-semibold text-zs-blau-schwarz hover:underline flex items-center gap-1 cursor-pointer self-start"
-          >
-            <span>Übertragungs-Assistent öffnen</span>
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        {/* Vergaben & Pilot-Use-Cases */}
-        <div className="bg-white rounded-xl border border-zinc-200 p-5 flex flex-col justify-between space-y-3">
-          <div>
-            <div className="text-[11px] font-mono text-zinc-500 uppercase font-bold">
-              Compliance &amp; Transformationspiloten
-            </div>
-            <div className="grid grid-cols-2 gap-3 mt-3">
-              <button
-                type="button"
-                onClick={() => onNavigateDetail('vergaben', {})}
-                className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 hover:border-zs-blau-schwarz text-left cursor-pointer"
-              >
-                <div className="text-[10px] font-mono text-zinc-500 uppercase">Ohne BAFA-Freigabe</div>
-                <div className={`text-xl font-mono font-bold tabular-nums mt-0.5 ${vergabenOhneBafa > 0 ? 'text-red-700' : 'text-emerald-700'}`}>
-                  {vergabenOhneBafa}
-                </div>
-              </button>
-              <button
-                type="button"
-                onClick={() => onNavigateDetail('usecase', {})}
-                className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 hover:border-zs-blau-schwarz text-left cursor-pointer"
-              >
-                <div className="text-[10px] font-mono text-zinc-500 uppercase">Aktive Use-Cases</div>
-                <div className="text-xl font-mono font-bold text-zs-blau-schwarz tabular-nums mt-0.5">
-                  {activePilotsCount}
-                </div>
-              </button>
-            </div>
-          </div>
-          {vergabenOhneBafa > 0 && (
-            <div className="text-[11px] text-red-700 flex items-center gap-1.5 font-medium">
-              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-              <span>Rechnungen zu unfreigegebenen Vergaben sind durch Compliance-Gate gesperrt.</span>
-            </div>
-          )}
-        </div>
-
-        {/* Offene Aufgaben */}
-        <div className="bg-white rounded-xl border border-zinc-200 p-5 flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-[11px] font-mono text-zinc-500 uppercase font-bold">
-                Fällige Aufgaben ({offeneTasks.length})
-              </span>
-              <button
-                onClick={() =>
-                  onNavigateDetail('aufgaben', { aufgabenStatus: 'offen' })
-                }
-                className="text-xs font-semibold text-zs-blau-schwarz hover:underline cursor-pointer"
-              >
-                Alle
-              </button>
-            </div>
-            {offeneTasks.length === 0 ? (
-              <p className="text-xs text-zinc-400 font-mono py-4 text-center">
-                Keine offenen Aufgaben.
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {offeneTasks.slice(0, 3).map((t) => (
-                  <div
-                    key={t.id}
-                    className="flex items-start gap-2.5 text-xs p-2 rounded-lg bg-zinc-50 border border-zinc-100"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => onUpdateTask?.(t.id, { status: 'erledigt' })}
-                      className="text-zinc-400 hover:text-[#58B49D] cursor-pointer mt-0.5"
-                      title="Als erledigt markieren"
-                    >
-                      <Square className="w-4 h-4" />
-                    </button>
-                    <div className="min-w-0 flex-1">
-                      <div className="font-semibold text-zs-blau-schwarz truncate">{t.title}</div>
-                      {t.dueDate && (
-                        <div className="text-[10px] font-mono text-zinc-500">
-                          Fällig: {formatDate(t.dueDate)}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          {tasks.some((t) => t.status === 'erledigt') && (
-            <div className="mt-3 pt-2 border-t border-zinc-100 text-[11px] text-zinc-500 flex items-center gap-1.5 font-mono">
-              <CheckSquare className="w-3.5 h-3.5 text-[#58B49D]" />
-              <span>{tasks.filter((t) => t.status === 'erledigt').length} erledigt</span>
-            </div>
-          )}
-        </div>
-      </div>
-
+          </>
+        )}
+        {view === 'spiel' && (
+          <>
       {/* 48-Monate-Chronik-Scrubber, Operation Kassenschluss & Trophäenschrank (nur in Projekt-Steuerung) */}
       {gamificationEnabled && (
         <div className="space-y-6">
@@ -980,7 +1007,7 @@ export default function ExecutiveCockpit({
                   <Award className="w-4 h-4 text-[#BA8B68]" />
                   <span>Projekt-Trophäenschrank (Operational Mastery)</span>
                 </h2>
-                <p className="text-[11px] text-zinc-500 mt-0.5">
+                <p className="text-xs text-zinc-500 mt-0.5">
                   Datengetriebene Abzeichen aus Live-Belegen, Use-Cases und BAFA-Prüfregeln – einmal
                   freigeschaltet, bleiben sie revisionssicher im Audit-Log erhalten
                 </p>
@@ -1021,7 +1048,9 @@ export default function ExecutiveCockpit({
           </div>
           </div>
         </div>
-      )}
+      )}          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -1046,14 +1075,14 @@ function StreakTile({
       }`}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-zinc-500">{label}</span>
+        <span className="text-xs font-mono font-bold uppercase tracking-wider text-zinc-500">{label}</span>
         <Flame className={`w-4 h-4 shrink-0 ${active ? 'text-orange-500' : 'text-zinc-300'}`} aria-hidden="true" />
       </div>
       <div className="mt-1 flex items-baseline gap-1.5">
         <span className="font-display font-bold text-2xl text-zs-blau-schwarz tabular-nums">{streak.current}</span>
-        <span className="text-[11px] text-zinc-500">{unit} in Folge</span>
+        <span className="text-xs text-zinc-500">{unit} in Folge</span>
       </div>
-      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-mono text-zinc-500">
+      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-mono text-zinc-500">
         <span>Rekord {streak.best}</span>
         <span aria-hidden="true">·</span>
         <span
@@ -1064,7 +1093,7 @@ function StreakTile({
           {streak.jokerUsed ? 'Joker verbraucht' : '1 Joker frei'}
         </span>
       </div>
-      <p className="mt-1.5 text-[10px] text-zinc-400 leading-snug">
+      <p className="mt-1.5 text-xs text-zinc-500 leading-snug">
         {streak.total === 0 ? `Noch keine Daten – ${rule}` : rule}
       </p>
     </div>
@@ -1090,7 +1119,7 @@ function AchievementCard({ achievement: ach }: { achievement: DisplayAchievement
       }`}
     >
       <div className="flex items-start justify-between gap-2">
-        <span className="text-[10px] font-mono text-zinc-400">{ach.category}</span>
+        <span className="text-xs font-mono text-zinc-500">{ach.category}</span>
         {concealed ? (
           <Lock className="w-4 h-4 shrink-0 text-zinc-300" aria-label="Verstecktes Abzeichen" />
         ) : ach.hidden ? (
@@ -1106,28 +1135,28 @@ function AchievementCard({ achievement: ach }: { achievement: DisplayAchievement
       <div className="font-bold text-xs text-zs-blau-schwarz mt-1 flex items-center gap-1.5 flex-wrap">
         <span>{concealed ? '???' : ach.title}</span>
         {ach.tier && tierStyle && (
-          <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${tierStyle.badge}`}>
+          <span className={`text-xs font-mono px-1.5 py-0.5 rounded ${tierStyle.badge}`}>
             {TIER_LABEL[ach.tier]}
           </span>
         )}
       </div>
 
-      <p className="text-[11px] text-zinc-500 mt-0.5 leading-snug">
+      <p className="text-xs text-zinc-500 mt-0.5 leading-snug">
         {concealed ? 'Verstecktes Abzeichen – wird bei einem besonderen Meilenstein enthüllt.' : ach.description}
       </p>
 
       {!concealed && (
-        <div className="mt-2 font-mono text-[10px] font-semibold text-zinc-600">{ach.progressLabel}</div>
+        <div className="mt-2 font-mono text-xs font-semibold text-zinc-600">{ach.progressLabel}</div>
       )}
 
       {!concealed && ach.nextTier && (
-        <div className="mt-1 font-mono text-[10px] text-zinc-400">
+        <div className="mt-1 font-mono text-xs text-zinc-500">
           Nächste Stufe: {TIER_LABEL[ach.nextTier.tier]} bei {ach.nextTier.threshold}
         </div>
       )}
 
       {ach.unlocked && dateLabel && (
-        <div className="mt-1.5 text-[10px] text-zinc-400">
+        <div className="mt-1.5 text-xs text-zinc-500">
           {ach.retroactive ? 'Aus Bestand übernommen am ' : 'Freigeschaltet am '}
           {formatDate(dateLabel)}
         </div>

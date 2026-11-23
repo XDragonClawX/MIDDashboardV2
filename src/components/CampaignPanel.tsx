@@ -32,9 +32,9 @@ function ChapterButton({
     >
       <div className="flex items-center justify-between gap-1">
         <span className="font-display font-bold text-sm text-zs-blau-schwarz">{chapter.short}</span>
-        <Icon className={`w-4 h-4 ${chapter.passed ? 'text-[#10B981]' : 'text-zinc-400'}`} aria-hidden="true" />
+        <Icon className={`w-4 h-4 ${chapter.passed ? 'text-[#10B981]' : 'text-zinc-500'}`} aria-hidden="true" />
       </div>
-      <div className="text-[10px] font-mono text-zinc-500 mt-0.5">
+      <div className="text-xs font-mono text-zinc-500 mt-0.5">
         {chapter.passed ? 'Bestanden' : STATUS_LABEL[chapter.status]}
       </div>
       <div className="mt-1.5 h-1 rounded-full bg-zinc-100 overflow-hidden">
@@ -60,7 +60,7 @@ export function CampaignPanel({ chapters }: { chapters: CampaignChapter[] }) {
             <Flag className="w-4 h-4 text-[#BA8B68]" aria-hidden="true" />
             <span>Kampagne 2025–2029</span>
           </h2>
-          <p className="text-[11px] text-zinc-500 mt-0.5">Fünf Kapitel, je ein AZA-Förderzeitraum mit Jahresbilanz</p>
+          <p className="text-xs text-zinc-500 mt-0.5">Fünf Kapitel, je ein AZA-Förderzeitraum mit Jahresbilanz</p>
         </div>
         <span className="font-mono text-xs font-bold text-zs-blau-schwarz tabular-nums">
           {passedCount} / {chapters.length} Kapitel bestanden
@@ -83,7 +83,7 @@ export function CampaignPanel({ chapters }: { chapters: CampaignChapter[] }) {
       <div>
         <div className="flex items-baseline justify-between gap-2">
           <h3 className="text-xs font-bold text-zs-blau-schwarz">Jahresbilanz {chapter.label}</h3>
-          <span className="text-[10px] font-mono text-zinc-500">
+          <span className="text-xs font-mono text-zinc-500">
             {STATUS_LABEL[chapter.status]}
             {chapter.hasData ? ` · ${chapter.progressPct} % der Kriterien erfüllt` : ' · noch keine Daten'}
           </span>
@@ -100,7 +100,7 @@ export function CampaignPanel({ chapters }: { chapters: CampaignChapter[] }) {
               )}
               <div className="min-w-0">
                 <div className="text-xs font-bold text-zs-blau-schwarz">{c.label}</div>
-                <div className="text-[10px] text-zinc-500 leading-snug">{c.detail}</div>
+                <div className="text-xs text-zinc-500 leading-snug">{c.detail}</div>
               </div>
             </li>
           ))}
@@ -125,7 +125,7 @@ export function TeamGoalsPanel({ goals }: { goals: TeamGoal[] }) {
           <Users className="w-4 h-4 text-[#00B4D8]" aria-hidden="true" />
           <span>Gemeinsame Team-Ziele</span>
         </h2>
-        <p className="text-[11px] text-zinc-500 mt-0.5">
+        <p className="text-xs text-zinc-500 mt-0.5">
           Projektziele für das ganze Team – keine Einzelwertung. Der Marker zeigt den linearen Soll-Verlauf.
         </p>
       </div>
@@ -136,11 +136,11 @@ export function TeamGoalsPanel({ goals }: { goals: TeamGoal[] }) {
             <li key={g.id}>
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-bold text-zs-blau-schwarz">{g.title}</span>
-                <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded ${style.cls}`}>
+                <span className={`text-xs font-mono font-bold px-1.5 py-0.5 rounded ${style.cls}`}>
                   {style.label}
                 </span>
               </div>
-              <div className="text-[10px] text-zinc-500">
+              <div className="text-xs text-zinc-500">
                 {g.description} · Ziel bis {g.targetDate.split('-').reverse().join('.')}
               </div>
               <div
@@ -158,7 +158,7 @@ export function TeamGoalsPanel({ goals }: { goals: TeamGoal[] }) {
                   aria-hidden="true"
                 />
               </div>
-              <div className="text-[10px] font-mono text-zinc-500 mt-0.5 tabular-nums">
+              <div className="text-xs font-mono text-zinc-500 mt-0.5 tabular-nums">
                 {g.current} / {g.target} ({g.progressPct} %)
               </div>
             </li>

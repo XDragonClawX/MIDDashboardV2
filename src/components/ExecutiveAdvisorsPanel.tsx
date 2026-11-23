@@ -73,7 +73,7 @@ export default function ExecutiveAdvisorsPanel({
           <h2 className="font-display font-bold text-sm text-zs-deep-teal">
             Berater-Stab &amp; Lageeinschätzung
           </h2>
-          <p className="text-[11px] text-zinc-500">
+          <p className="text-xs text-zinc-500">
             Live-Diagnose aus Belegen, Zahlungsanforderungen, Fristen und Use-Case-Batches
           </p>
         </div>
@@ -104,10 +104,10 @@ export default function ExecutiveAdvisorsPanel({
                   <AdvisorPapercutAvatar id={adv.id} status={adv.status} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center justify-between gap-2">
-                      <span className={`text-[10px] font-mono font-bold uppercase ${statusColor}`}>
+                      <span className={`text-xs font-mono font-bold uppercase ${statusColor}`}>
                         {statusLabel}
                       </span>
-                      <span className="text-[10px] font-mono text-zinc-400 truncate">
+                      <span className="text-xs font-mono text-zinc-500 truncate">
                         {adv.role}
                       </span>
                     </div>
@@ -123,13 +123,13 @@ export default function ExecutiveAdvisorsPanel({
               </div>
 
               <div className="pt-2.5 border-t border-zinc-100 flex items-center justify-between gap-2">
-                <span className="text-[11px] font-mono text-zinc-500 tabular-nums truncate">
+                <span className="text-xs font-mono text-zinc-500 tabular-nums truncate">
                   {adv.metricLabel}
                 </span>
                 <button
                   type="button"
                   onClick={() => onNavigate(adv.targetPage, adv.filters)}
-                  className="px-3 py-1.5 rounded-lg bg-[#0A2B32] text-white text-[11px] font-bold hover:bg-[#041422] transition-colors inline-flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
+                  className="px-3 py-1.5 rounded-lg bg-[#0A2B32] text-white text-xs font-bold hover:bg-[#041422] transition-colors inline-flex items-center gap-1 cursor-pointer whitespace-nowrap shrink-0"
                 >
                   <span>{adv.actionLabel}</span>
                   <ArrowRight className="w-3 h-3 text-zs-signal-gelb" />

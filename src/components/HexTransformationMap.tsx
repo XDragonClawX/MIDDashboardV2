@@ -268,7 +268,7 @@ export default function HexTransformationMap({
           <h2 className="font-display font-bold text-base text-zs-blau-schwarz">
             Dürener Transformations-Karte (Rur-Korridor)
           </h2>
-          <p className="text-[11px] text-zinc-500 mt-0.5">
+          <p className="text-xs text-zinc-500 mt-0.5">
             Interaktive 2.5D-Hex-Topologie der {usecases.length} Pilotprojekte &middot; Kachel anklicken für Use-Case-Details
           </p>
         </div>
@@ -298,7 +298,7 @@ export default function HexTransformationMap({
 
       {showProgress && buildProgress.total > 0 && (
         <div className="px-5 py-3 border-b border-zinc-100 bg-zinc-50/60 space-y-1.5">
-          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
             <span className="font-bold text-zs-blau-schwarz">Ausbau-Fortschritt der Karte: {buildProgress.pct} %</span>
             <span className="text-zinc-500">
               {counts.abgeschlossen} fertig &middot; {counts.pilotbetrieb} im Pilot &middot; {counts.vorbereitung} in Vorbereitung
@@ -313,7 +313,7 @@ export default function HexTransformationMap({
             <div className="bg-[#00B4D8]" style={{ width: `${(counts.pilotbetrieb / buildProgress.total) * 100}%` }} />
           </div>
           {buildProgress.next && (
-            <p className="text-[10px] text-zinc-500">
+            <p className="text-xs text-zinc-500">
               Nächster Ausbauschritt: <strong>{buildProgress.next.uc.titel}</strong> (Frist{' '}
               {new Date(buildProgress.next.uc.deadline + 'T12:00:00').toLocaleDateString('de-DE')}) &rarr; Kachel anklicken
             </p>
@@ -327,7 +327,7 @@ export default function HexTransformationMap({
         <div className="xl:col-span-7 bg-[#f8fafc] p-4 border-b xl:border-b-0 xl:border-r border-zinc-100 flex flex-col justify-between">
           {/* Status filter bar */}
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-            <div className="inline-flex flex-wrap items-center gap-1 bg-white p-1 rounded-lg border border-zinc-200 text-[11px] font-mono">
+            <div className="inline-flex flex-wrap items-center gap-1 bg-white p-1 rounded-lg border border-zinc-200 text-xs font-mono">
               <button
                 type="button"
                 onClick={() => setStageFilter('all')}
@@ -618,7 +618,7 @@ export default function HexTransformationMap({
             {/* Floating Hover Tooltip HUD (top-right, clear of compass rose & scale bar) */}
             {hoveredId && activePreview && (
               <div className="absolute top-3 right-3 left-3 sm:left-auto sm:w-72 bg-[#041422]/95 border border-white/15 rounded-lg px-3.5 py-2.5 text-white pointer-events-none shadow-lg">
-                <div className="flex items-center justify-between gap-2 text-[10px] font-mono">
+                <div className="flex items-center justify-between gap-2 text-xs font-mono">
                   <span className="text-zinc-300 truncate">{activePreview.coord.ort}</span>
                   <span
                     className={`font-bold shrink-0 ${
@@ -633,10 +633,10 @@ export default function HexTransformationMap({
                   </span>
                 </div>
                 <div className="text-xs font-bold truncate mt-0.5">{activePreview.uc.titel}</div>
-                <div className="text-[10px] text-zinc-400 truncate mt-0.5">
+                <div className="text-xs text-zinc-400 truncate mt-0.5">
                   {activePreview.uc.unternehmen} &times; {activePreview.uc.startupPartner || activePreview.uc.loesung}
                 </div>
-                <div className="text-[10px] font-mono text-zs-signal-gelb mt-1.5">
+                <div className="text-xs font-mono text-zs-signal-gelb mt-1.5">
                   Klicken für Detail-Drilldown &rarr;
                 </div>
               </div>
@@ -644,7 +644,7 @@ export default function HexTransformationMap({
           </div>
 
           {/* Color Legend */}
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] font-mono text-zinc-600">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs font-mono text-zinc-600">
             <div className="flex flex-wrap items-center gap-4">
               <span className="inline-flex items-center gap-1.5">
                 <span className="w-2.5 h-2.5 rounded-xs bg-[#475569] border border-dashed border-slate-400 inline-block" />
@@ -668,7 +668,7 @@ export default function HexTransformationMap({
           {activePreview ? (
             <>
               <div className="space-y-3">
-                <div className="flex items-center justify-between gap-2 text-[11px] font-mono text-zinc-500">
+                <div className="flex items-center justify-between gap-2 text-xs font-mono text-zinc-500">
                   <span className="inline-flex items-center gap-1">
                     <MapPin className="w-3.5 h-3.5 text-[#58B49D]" />
                     {activePreview.coord.ort}
@@ -694,7 +694,7 @@ export default function HexTransformationMap({
                 {/* Status / Reifegrad Selector */}
                 <div className="p-3 rounded-lg bg-zinc-50 border border-zinc-200 space-y-2">
                   <div className="flex items-center justify-between text-xs">
-                    <span className="font-mono text-[11px] text-zinc-500 uppercase font-bold">
+                    <span className="font-mono text-xs text-zinc-500 uppercase font-bold">
                       Reifegrad / Status
                     </span>
                     <span className={`font-mono font-bold text-xs ${STAGE_STYLE[activePreview.stage].badgeText}`}>
@@ -703,7 +703,7 @@ export default function HexTransformationMap({
                   </div>
 
                   {onUpdateUseCase ? (
-                    <div className="grid grid-cols-3 gap-1.5 text-[11px] font-mono">
+                    <div className="grid grid-cols-3 gap-1.5 text-xs font-mono">
                       <button
                         type="button"
                         onClick={() => handleStageUpdate(activePreview.uc, 'vorbereitung')}
@@ -759,7 +759,7 @@ export default function HexTransformationMap({
                 <div className="space-y-2 text-xs text-zinc-600 leading-relaxed">
                   {activePreview.uc.problemstellung && (
                     <div>
-                      <span className="font-mono text-[10px] uppercase font-bold text-zinc-400 block">
+                      <span className="font-mono text-xs uppercase font-bold text-zinc-400 block">
                         Problemstellung
                       </span>
                       <p className="line-clamp-2">{activePreview.uc.problemstellung}</p>
@@ -767,7 +767,7 @@ export default function HexTransformationMap({
                   )}
                   {activePreview.uc.standortMehrwert && (
                     <div>
-                      <span className="font-mono text-[10px] uppercase font-bold text-zinc-400 block">
+                      <span className="font-mono text-xs uppercase font-bold text-zinc-400 block">
                         Standort-Mehrwert Düren
                       </span>
                       <p className="line-clamp-2">{activePreview.uc.standortMehrwert}</p>
@@ -778,7 +778,7 @@ export default function HexTransformationMap({
                 {/* Linked Vergabe & Todos */}
                 <div className="grid grid-cols-2 gap-2.5 pt-1 text-xs">
                   <div className="p-2.5 rounded-lg border border-zinc-200 bg-white">
-                    <div className="text-[10px] font-mono text-zinc-400 uppercase">Booster-Vergabe (0835)</div>
+                    <div className="text-xs font-mono text-zinc-400 uppercase">Booster-Vergabe (0835)</div>
                     <div className="font-mono font-bold text-zs-blau-schwarz mt-0.5 tabular-nums">
                       {activePreview.linkedVergabe
                         ? `${formatEuro(activePreview.linkedVergabe.auftragswert, 0)} (${
@@ -788,7 +788,7 @@ export default function HexTransformationMap({
                     </div>
                   </div>
                   <div className="p-2.5 rounded-lg border border-zinc-200 bg-white">
-                    <div className="text-[10px] font-mono text-zinc-400 uppercase">Meilensteine</div>
+                    <div className="text-xs font-mono text-zinc-400 uppercase">Meilensteine</div>
                     <div className="font-mono font-bold text-zs-blau-schwarz mt-0.5 tabular-nums flex items-center gap-1">
                       <CheckCircle2 className="w-3.5 h-3.5 text-[#58B49D]" />
                       {(activePreview.uc.todos || []).filter((t) => t.completed).length} /{' '}
@@ -799,7 +799,7 @@ export default function HexTransformationMap({
               </div>
 
               <div className="pt-3 border-t border-zinc-100 flex items-center justify-between">
-                <span className="text-[11px] font-mono text-zinc-400 flex items-center gap-1 tabular-nums">
+                <span className="text-xs font-mono text-zinc-400 flex items-center gap-1 tabular-nums">
                   <Layers className="w-3.5 h-3.5" /> Erfolgswahrscheinlichkeit: {activePreview.uc.erfolgswahrscheinlichkeit} %
                 </span>
                 <button
