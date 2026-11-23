@@ -22,3 +22,6 @@ bun.lock
 
 # Laufzeit-Datenbank & Backups (zur Laufzeit vom Server erzeugt)
 data/
+
+# graphify
+graphify-out/
