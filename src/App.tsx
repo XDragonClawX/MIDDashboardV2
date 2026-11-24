@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { Suspense, lazy, useState, useEffect, useMemo, useRef } from 'react';
 import {
   PersonalEintrag,
   Rechnungsbeleg,
@@ -95,20 +95,25 @@ import {
 
 // Subpages import
 import ExecutiveCockpit, { CockpitDrilldownFilters } from './components/pages/ExecutiveCockpit';
-import BudgetPage, { BudgetFocus, BudgetTab } from './components/pages/BudgetPage';
-import PersonalkostenPage from './components/pages/PersonalkostenPage';
-import RechnungsPage from './components/pages/RechnungsPage';
-import MittelabrufePage, { AbrufStatusFilter, MittelabrufeSubTab } from './components/pages/MittelabrufePage';
-import LiquiditaetsPage from './components/pages/LiquiditaetsPage';
-import VergabePage from './components/pages/VergabePage';
-import UseCasePage from './components/pages/UseCasePage';
-import PartnerPage from './components/pages/PartnerPage';
-import AufgabenPage from './components/pages/AufgabenPage';
-import ExcelImportPage from './components/pages/ExcelImportPage';
-import ReportingPage from './components/pages/ReportingPage';
-import AuditLogPage from './components/pages/AuditLogPage';
-import SettingsPage from './components/pages/SettingsPage';
-import TVoDRechnerPage from './components/pages/TVoDRechnerPage';
+import type { BudgetFocus, BudgetTab } from './components/pages/BudgetPage';
+import type { AbrufStatusFilter, MittelabrufeSubTab } from './components/pages/MittelabrufePage';
+
+// Fachseiten werden erst beim ersten Aufruf geladen (kleineres Start-Bundle).
+// Das Cockpit bleibt direkt eingebunden, weil es die Startseite ist.
+const BudgetPage = lazy(() => import('./components/pages/BudgetPage'));
+const PersonalkostenPage = lazy(() => import('./components/pages/PersonalkostenPage'));
+const RechnungsPage = lazy(() => import('./components/pages/RechnungsPage'));
+const MittelabrufePage = lazy(() => import('./components/pages/MittelabrufePage'));
+const LiquiditaetsPage = lazy(() => import('./components/pages/LiquiditaetsPage'));
+const VergabePage = lazy(() => import('./components/pages/VergabePage'));
+const UseCasePage = lazy(() => import('./components/pages/UseCasePage'));
+const PartnerPage = lazy(() => import('./components/pages/PartnerPage'));
+const AufgabenPage = lazy(() => import('./components/pages/AufgabenPage'));
+const ExcelImportPage = lazy(() => import('./components/pages/ExcelImportPage'));
+const ReportingPage = lazy(() => import('./components/pages/ReportingPage'));
+const AuditLogPage = lazy(() => import('./components/pages/AuditLogPage'));
+const SettingsPage = lazy(() => import('./components/pages/SettingsPage'));
+const TVoDRechnerPage = lazy(() => import('./components/pages/TVoDRechnerPage'));
 
 declare global {
   interface Window {
@@ -2262,6 +2267,13 @@ export default function App() {
               activePage === 'cockpit' || settings.boardroomMode ? 'max-w-full px-2 lg:px-6' : 'max-w-7xl'
             } mx-auto pb-12 print:pb-0 print:max-w-full print:px-0`}
           >
+            <Suspense
+              fallback={
+                <div role="status" aria-live="polite" className="py-16 text-center text-sm text-zinc-500">
+                  Seite wird geladen …
+                </div>
+              }
+            >
             {activePage === 'cockpit' && (
               <ExecutiveCockpit
                 personal={personal}
@@ -2488,6 +2500,7 @@ export default function App() {
                 exportDatabaseSnapshot={exportDatabaseSnapshot}
               />
             )}
+            </Suspense>
           </div>
         </main>
       </div>

@@ -3,12 +3,29 @@ import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
 
-export default defineConfig(() => {
+export default defineConfig(({ mode }) => {
+  // Offline-Variante: alles in EINE Datei (file:// kann keine Nachlade-Chunks öffnen)
+  const offline = mode === 'offline';
   return {
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+      },
+    },
+    build: {
+      rollupOptions: {
+        output: offline
+          ? { inlineDynamicImports: true }
+          : {
+              manualChunks(id: string) {
+                if (!id.includes('node_modules')) return undefined;
+                if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) return 'vendor-react';
+                if (/node_modules\/(recharts|d3-[^/]+|victory-vendor|internmap)\//.test(id)) return 'vendor-charts';
+                if (/node_modules\/(motion|framer-motion|motion-dom|motion-utils)\//.test(id)) return 'vendor-motion';
+                return undefined;
+              },
+            },
       },
     },
     server: {

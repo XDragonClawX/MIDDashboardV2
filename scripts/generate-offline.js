@@ -16,7 +16,8 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const distPath = path.resolve(process.cwd(), 'dist');
+// Die Offline-Variante wird separat als EINE Datei gebaut (vite build --mode offline)
+const distPath = path.resolve(process.cwd(), 'dist-offline');
 const indexPath = path.join(distPath, 'index.html');
 const outputPath = path.resolve(process.cwd(), 'MiD-PCT_Dashboard_OFFLINE.html');
 
@@ -25,7 +26,7 @@ console.log(`Quellpfad: ${indexPath}`);
 console.log(`Zielpfad: ${outputPath}`);
 
 if (!fs.existsSync(indexPath)) {
-  console.error("Fehler: dist/index.html wurde nicht gefunden! Bitte stelle sicher, dass 'vite build' vorher erfolgreich durchgelaufen ist.");
+  console.error("Fehler: dist-offline/index.html wurde nicht gefunden! Bitte stelle sicher, dass 'vite build --mode offline --outDir dist-offline' vorher erfolgreich durchgelaufen ist.");
   process.exit(1);
 }
 
@@ -52,7 +53,8 @@ for (const m of matches) {
   if (fs.existsSync(cssFilePath)) {
     console.log(`Inlining CSS: ${m.fileName}`);
     const cssContent = fs.readFileSync(cssFilePath, 'utf-8');
-    htmlContent = htmlContent.replace(m.fullTag, `<style>${cssContent}</style>`);
+    // Funktion statt Text: $-Muster im Inhalt (z. B. $&) dürfen nicht als Platzhalter gelten
+    htmlContent = htmlContent.replace(m.fullTag, () => `<style>${cssContent}</style>`);
     inlinedCssCount++;
   } else {
     console.warn(`Warnung: CSS Datei ${cssFilePath} wurde nicht gefunden.`);
@@ -71,6 +73,7 @@ while ((match = jsScriptRegex.exec(htmlContent)) !== null) {
 }
 
 let inlinedJsCount = 0;
+const bodyScripts = [];
 for (const m of jsMatches) {
   const jsFilePath = path.join(distPath, 'assets', m.fileName);
   if (fs.existsSync(jsFilePath)) {
@@ -79,7 +82,10 @@ for (const m of jsMatches) {
     
     // Wenn es inlined ist, mÃ¼ssen wir type="module" entfernen, da manche Browser blockieren.
     // Wir ersetzen den gesamten Tag mit einem einfachen non-module script tag.
-    htmlContent = htmlContent.replace(m.fullTag, `<script type="text/javascript">\n${jsContent}\n</script>`);
+    // Das Skript wird ans Ende von <body> verschoben: Ein klassisches Inline-Skript im <head>
+    // läuft sofort, also bevor <div id="root"> existiert (type="module" wird dagegen verzögert).
+    htmlContent = htmlContent.replace(m.fullTag, () => '');
+    bodyScripts.push(`<script type="text/javascript">\n${jsContent}\n</script>`);
     inlinedJsCount++;
   } else {
     console.warn(`Warnung: JS Datei ${jsFilePath} wurde nicht gefunden.`);
@@ -97,6 +103,14 @@ htmlContent = htmlContent.replace(/<script\s+type=["']module["']\s+crossorigin\s
   }
   return match;
 });
+
+if (bodyScripts.length > 0) {
+  if (!htmlContent.includes('</body>')) {
+    console.error('Fehler: </body> nicht gefunden – Skript kann nicht eingebettet werden.');
+    process.exit(1);
+  }
+  htmlContent = htmlContent.replace('</body>', () => `${bodyScripts.join('\n')}\n</body>`);
+}
 
 // Schreibe die finale eigenstÃ¤ndige Offline-Datei
 fs.writeFileSync(outputPath, htmlContent, 'utf-8');
