@@ -181,7 +181,7 @@ export default function UseCasePage({
     let active = true;
     const syncZukunftsstoff = async () => {
       setSyncStatus('loading');
-      setSyncMessage('Frage aktive Use Cases aus zukunftsstoff.de ab...');
+      setSyncMessage('Gleiche Use Cases mit zukunftsstoff.de ab (Stichwort-Abgleich)...');
       try {
         const res = await fetch('/api/zukunftsstoff-usecases');
         if (!res.ok) throw new Error('Proxy server error or CORS restrict');
@@ -218,7 +218,7 @@ export default function UseCasePage({
           setSyncStatus('success');
           setSyncMessage(
             updatedCount > 0 
-              ? `${updatedCount} Use-Cases mit zukunftsstoff.de synchronisiert.` 
+              ? `${updatedCount} Use-Cases aus Vorlagedaten ergänzt (Stichwort-Abgleich mit zukunftsstoff.de).` 
               : 'Verbindung zu zukunftsstoff.de aktiv. Alle Piloten auf aktuellem Stand.'
           );
         }

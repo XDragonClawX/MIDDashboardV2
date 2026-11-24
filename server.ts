@@ -4,10 +4,21 @@ import path from 'path';
 import crypto from 'node:crypto';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
+import {
+  atomicWriteFileSync,
+  createBasicAuth,
+  createRateLimiter,
+  injectBeforeHeadEnd,
+  isLoopbackHost,
+  validateStateBody,
+  validateUpload,
+  writeHourlyBackup,
+} from './serverSecurity';
 
 const DATA_DIR = path.join(process.cwd(), 'data');
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const DB_FILE = path.join(DATA_DIR, 'midpct_db.json');
+const BACKUPS_TO_KEEP = 72; // ca. 3 Tage stündlich
 
 function ensureDataDirs() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -17,12 +28,28 @@ function ensureDataDirs() {
 async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
-  const HOST = process.env.HOST || '0.0.0.0';
+  // Standard: nur lokal erreichbar. Für den Netzbetrieb HOST=0.0.0.0 setzen UND
+  // MIDPCT_USER / MIDPCT_PASSWORD vergeben – sonst ist der gesamte Datenbestand offen.
+  const HOST = process.env.HOST || '127.0.0.1';
+  const AUTH_USER = process.env.MIDPCT_USER || 'midpct';
+  const AUTH_PASSWORD = process.env.MIDPCT_PASSWORD || '';
 
   ensureDataDirs();
 
+  if (AUTH_PASSWORD) {
+    app.use(createBasicAuth(AUTH_USER, AUTH_PASSWORD));
+    console.log(`Zugriffsschutz aktiv (Benutzer: ${AUTH_USER}).`);
+  } else if (!isLoopbackHost(HOST)) {
+    console.warn(
+      `WARNUNG: Server ist über ${HOST} im Netz erreichbar, aber ohne Passwort. ` +
+        'Gehälter, Belege und ZAs sind für jeden im Netz lesbar und änderbar. ' +
+        'Bitte MIDPCT_PASSWORD setzen (optional MIDPCT_USER).'
+    );
+  }
+
   // Increased JSON limit for base64 PDF parsing & state snapshots
   app.use(express.json({ limit: '16mb' }));
+  const parsePdfLimiter = createRateLimiter({ windowMs: 60_000, max: 10 });
 
   // Health Check
   app.get('/api/health', (req, res) => {
@@ -41,7 +68,7 @@ async function startServer() {
       }
       const raw = fs.readFileSync(DB_FILE, 'utf-8');
       const parsed = JSON.parse(raw);
-      res.json({ exists: true, state: parsed });
+      res.json({ exists: true, state: parsed, updatedAt: parsed?.serverSavedAt ?? null });
     } catch (err: any) {
       console.error('Error reading midpct_db.json:', err);
       res.status(500).json({ exists: false, error: 'Fehler beim Lesen der Server-Datenbank.' });
@@ -51,22 +78,45 @@ async function startServer() {
   // Save persisted hybrid DB state + daily backup snapshot
   app.post('/api/state', (req, res) => {
     try {
+      const check = validateStateBody(req.body);
+      if (!check.ok) {
+        return res.status(400).json({ ok: false, error: check.error });
+      }
       ensureDataDirs();
-      const payload = {
-        ...req.body,
-        serverSavedAt: new Date().toISOString(),
-      };
-      const serialized = JSON.stringify(payload, null, 2);
-      fs.writeFileSync(DB_FILE, serialized, 'utf-8');
 
-      const today = new Date().toISOString().slice(0, 10);
-      const backupFile = path.join(BACKUP_DIR, `${today}.json`);
-      fs.writeFileSync(backupFile, serialized, 'utf-8');
+      // Optimistische Versionsprüfung: Hat ein anderer Browser inzwischen gespeichert, nicht überschreiben.
+      const baseUpdatedAt = typeof req.body.baseUpdatedAt === 'string' ? req.body.baseUpdatedAt : null;
+      if (baseUpdatedAt && fs.existsSync(DB_FILE)) {
+        try {
+          const current = JSON.parse(fs.readFileSync(DB_FILE, 'utf-8'));
+          const serverUpdatedAt: string | undefined = current?.serverSavedAt;
+          if (serverUpdatedAt && serverUpdatedAt > baseUpdatedAt) {
+            return res.status(409).json({
+              ok: false,
+              conflict: true,
+              serverUpdatedAt,
+              error: 'Auf dem Server liegt ein neuerer Stand (anderer Browser oder Sitzung).',
+            });
+          }
+        } catch {
+          // Beschädigte Datei: normales Überschreiben erlauben, das Backup bleibt erhalten
+        }
+      }
+
+      const savedAt = new Date().toISOString();
+      const serialized = JSON.stringify({ state: req.body.state, serverSavedAt: savedAt }, null, 2);
+
+      // Vorherigen Stand sichern, bevor er überschrieben wird (höchstens eine Sicherung pro Stunde)
+      if (fs.existsSync(DB_FILE)) {
+        writeHourlyBackup(BACKUP_DIR, fs.readFileSync(DB_FILE, 'utf-8'), new Date(), BACKUPS_TO_KEEP);
+      }
+      atomicWriteFileSync(DB_FILE, serialized);
 
       res.json({
         ok: true,
-        savedAt: payload.serverSavedAt,
-        backupFile: `data/backups/${today}.json`,
+        savedAt,
+        updatedAt: savedAt,
+        backupDir: 'data/backups/',
       });
     } catch (err: any) {
       console.error('Error saving midpct_db.json:', err);
@@ -75,11 +125,12 @@ async function startServer() {
   });
 
   // AI-assisted PDF parser (Rechnungsbeleg or profi-online ZA PDF) using server-side Gemini API
-  app.post('/api/parse-pdf', async (req, res) => {
+  app.post('/api/parse-pdf', parsePdfLimiter, async (req, res) => {
     try {
       const { base64Data, mimeType, targetType, fileName } = req.body || {};
-      if (!base64Data || typeof base64Data !== 'string') {
-        return res.status(400).json({ error: 'Keine Datei-Daten (base64Data) übermittelt.' });
+      const upload = validateUpload(base64Data, mimeType);
+      if (!upload.ok) {
+        return res.status(400).json({ error: upload.error });
       }
 
       const buffer = Buffer.from(base64Data, 'base64');
@@ -198,7 +249,7 @@ async function startServer() {
         const dbRaw = fs.readFileSync(DB_FILE, 'utf-8');
         const safeJson = dbRaw.replace(/</g, '\\u003c');
         const injection = `<script>window.__MIDPCT_INITIAL_STATE__ = ${safeJson};</script>\n</head>`;
-        html = html.replace('</head>', injection);
+        html = injectBeforeHeadEnd(html, injection);
       }
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('Content-Disposition', 'attachment; filename="MiD-PCT_Dashboard_OFFLINE.html"');
@@ -214,6 +265,7 @@ async function startServer() {
     try {
       console.log('Fetching active use cases from zukunftsstoff.de...');
       const response = await fetch('https://www.zukunftsstoff.de/aktive-use-cases', {
+        signal: AbortSignal.timeout(10_000),
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
@@ -297,7 +349,7 @@ async function startServer() {
         if (html.toLowerCase().includes(item.key.toLowerCase())) {
           scrapedUcs.push({
             ...item,
-            notizen: `${item.notizen} (Live-Verbindung verifiziert am ${new Date().toLocaleDateString('de-DE')})`
+            notizen: `${item.notizen} (Webseite am ${new Date().toLocaleDateString('de-DE')} erreichbar und Stichwort gefunden; Stammdaten stammen aus der Vorlage, nicht aus einem automatischen Auslesen)`
           });
         }
       });
@@ -305,7 +357,7 @@ async function startServer() {
       if (scrapedUcs.length === 0) {
         res.json({ source: 'cache_fallback', usecases: targetMatches });
       } else {
-        res.json({ source: 'zukunftsstoff_live', usecases: scrapedUcs });
+        res.json({ source: 'zukunftsstoff_live', usecases: scrapedUcs, note: 'Abgleich per Stichwort – Inhalte stammen aus Vorlagedaten.' });
       }
     } catch (error: any) {
       console.error('Error fetching/parsing zukunftsstoff use cases:', error);

@@ -30,7 +30,7 @@ import { recordBackupTimestamp, hasBackupInCurrentMonth, getLastBackupTimestamp 
 interface SettingsPageProps {
   settings: SystemSettings;
   onUpdateSettings: (partial: Partial<SystemSettings>) => void;
-  serverSyncStatus: 'synced' | 'saving' | 'offline';
+  serverSyncStatus: 'synced' | 'saving' | 'offline' | 'conflict';
   lastServerSync: string | null;
   onSyncWithServer: (dir: 'push' | 'pull') => Promise<{ ok: boolean; message: string }>;
   onResetDatabase: () => void;
@@ -429,6 +429,8 @@ export default function SettingsPage({
                   ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
                   : serverSyncStatus === 'saving'
                   ? 'bg-amber-50 text-amber-800 border-amber-200'
+                  : serverSyncStatus === 'conflict'
+                  ? 'bg-red-50 text-red-800 border-red-200'
                   : 'bg-zinc-100 text-zinc-600 border-zinc-200'
               }`}
             >
@@ -436,6 +438,8 @@ export default function SettingsPage({
                 ? 'Server Synchron'
                 : serverSyncStatus === 'saving'
                 ? 'Speichert...'
+                : serverSyncStatus === 'conflict'
+                ? 'Konflikt'
                 : 'Lokal / Offline'}
             </span>
           </div>
@@ -451,6 +455,14 @@ export default function SettingsPage({
                   : 'Noch kein Abgleich in dieser Sitzung'}
               </span>
             </div>
+
+            {serverSyncStatus === 'conflict' && (
+              <div role="alert" className="p-2.5 rounded-lg text-xs font-medium bg-red-50 border border-red-200 text-red-800">
+                Auf dem Server liegt ein neuerer Stand (anderer Browser oder Sitzung). Automatisches Speichern ist
+                pausiert, damit nichts überschrieben wird. „Stand vom Server laden“ übernimmt den Serverstand,
+                „Stand auf Server sichern“ ersetzt ihn bewusst durch Ihren lokalen Stand.
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
               <button

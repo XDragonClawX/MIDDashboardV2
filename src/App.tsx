@@ -360,8 +360,14 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
 
   // Server Hybrid Persistence status
-  const [serverSyncStatus, setServerSyncStatus] = useState<'synced' | 'saving' | 'offline'>('offline');
+  const [serverSyncStatus, setServerSyncStatus] = useState<'synced' | 'saving' | 'offline' | 'conflict'>('offline');
   const [lastServerSync, setLastServerSync] = useState<string | null>(null);
+  // Letzter bekannter Server-Stand (für die Versionsprüfung beim Speichern, ohne veraltete Closure)
+  const lastServerSyncRef = React.useRef<string | null>(null);
+  const markServerSynced = (iso: string) => {
+    lastServerSyncRef.current = iso;
+    setLastServerSync(iso);
+  };
   const skipNextPushRef = useRef(false);
   const isMountedRef = useRef(false);
 
@@ -607,7 +613,7 @@ export default function App() {
           if (!localLastModified || (serverUpdatedAt && serverUpdatedAt > localLastModified)) {
             applyFullStateSnapshot(data.state, false);
           }
-          setLastServerSync(serverUpdatedAt || new Date().toISOString());
+          markServerSynced(serverUpdatedAt || new Date().toISOString());
           setServerSyncStatus('synced');
         } else {
           // Server has no file yet: seed it immediately with current client state
@@ -618,7 +624,7 @@ export default function App() {
           });
           if (pushRes.ok) {
             const pData = await pushRes.json();
-            setLastServerSync(pData.updatedAt || new Date().toISOString());
+            markServerSynced(pData.updatedAt || new Date().toISOString());
             setServerSyncStatus('synced');
           } else {
             setServerSyncStatus('offline');
@@ -656,12 +662,18 @@ export default function App() {
         const res = await fetch('/api/state', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ state: buildStatePayload() }),
+          body: JSON.stringify({
+            state: buildStatePayload(),
+            baseUpdatedAt: lastServerSyncRef.current,
+          }),
         });
         if (res.ok) {
           const data = await res.json();
-          setLastServerSync(data.updatedAt || new Date().toISOString());
+          markServerSynced(data.updatedAt || new Date().toISOString());
           setServerSyncStatus('synced');
+        } else if (res.status === 409) {
+          // Neuerer Stand auf dem Server: nicht überschreiben, Nutzer entscheidet in den Einstellungen
+          setServerSyncStatus('conflict');
         } else {
           setServerSyncStatus('offline');
         }
@@ -706,9 +718,12 @@ export default function App() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ state: buildStatePayload() }),
         });
-        if (!res.ok) throw new Error('Serverfehler beim Speichern');
+        if (!res.ok) {
+          if (res.status === 401) throw new Error('Anmeldung am Server erforderlich.');
+          throw new Error('Serverfehler beim Speichern');
+        }
         const data = await res.json();
-        setLastServerSync(data.updatedAt || new Date().toISOString());
+        markServerSynced(data.updatedAt || new Date().toISOString());
         setServerSyncStatus('synced');
         return { ok: true, message: `Server-Persistenz erfolgreich aktualisiert (data/midpct_db.json).` };
       } else {
@@ -719,7 +734,7 @@ export default function App() {
           return { ok: false, message: 'Auf dem Server existiert noch kein gespeicherter Stand.' };
         }
         applyFullStateSnapshot(data.state, false);
-        setLastServerSync(data.updatedAt || new Date().toISOString());
+        markServerSynced(data.updatedAt || new Date().toISOString());
         setServerSyncStatus('synced');
         return { ok: true, message: 'Datenstand erfolgreich aus Server-Datenbank (data/midpct_db.json) geladen.' };
       }
