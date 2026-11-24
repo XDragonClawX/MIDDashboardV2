@@ -98,6 +98,20 @@ import ExecutiveCockpit, { CockpitDrilldownFilters } from './components/pages/Ex
 import type { BudgetFocus, BudgetTab } from './components/pages/BudgetPage';
 import type { AbrufStatusFilter, MittelabrufeSubTab } from './components/pages/MittelabrufePage';
 
+import { searchErp } from './lib/search';
+import GlobalSearchModal from './components/GlobalSearchModal';
+import { useAutoSave } from './hooks/useAutoSave';
+import { useServerSync } from './hooks/useServerSync';
+import {
+  INITIAL_MATCHES,
+  INITIAL_BUCHUNGEN,
+  getOfflineInjectedState,
+  sanitizeAndDeduplicate,
+  upgradeAndNormalizeZas,
+  normalizePersonalList,
+  normalizeRechnungenList,
+} from './lib/stateNormalization';
+
 // Fachseiten werden erst beim ersten Aufruf geladen (kleineres Start-Bundle).
 // Das Cockpit bleibt direkt eingebunden, weil es die Startseite ist.
 const BudgetPage = lazy(() => import('./components/pages/BudgetPage'));
@@ -114,116 +128,6 @@ const ReportingPage = lazy(() => import('./components/pages/ReportingPage'));
 const AuditLogPage = lazy(() => import('./components/pages/AuditLogPage'));
 const SettingsPage = lazy(() => import('./components/pages/SettingsPage'));
 const TVoDRechnerPage = lazy(() => import('./components/pages/TVoDRechnerPage'));
-
-declare global {
-  interface Window {
-    __MIDPCT_INITIAL_STATE__?: Record<string, any>;
-  }
-}
-
-const INITIAL_MATCHES: PartnerMatch[] = [];
-const INITIAL_BUCHUNGEN: Buchung[] = [];
-
-function getOfflineInjectedState(): Record<string, any> | null {
-  if (typeof window !== 'undefined' && window.__MIDPCT_INITIAL_STATE__) {
-    return window.__MIDPCT_INITIAL_STATE__;
-  }
-  return null;
-}
-
-function sanitizeAndDeduplicate<T extends { id: number }>(items: T[], fallbackSeed: T[] = []): T[] {
-  const list = Array.isArray(items) && items.length > 0 ? items : fallbackSeed;
-  const seenIds = new Set<number>();
-  const verifiedList: T[] = [];
-
-  list.forEach((item) => {
-    if (item && typeof item.id === 'number' && !isNaN(item.id) && !seenIds.has(item.id)) {
-      seenIds.add(item.id);
-      verifiedList.push(item);
-    } else if (item) {
-      verifiedList.push({ ...item, id: -1 });
-    }
-  });
-
-  let nextId = verifiedList.length > 0 ? Math.max(...verifiedList.map((x) => x.id)) + 1 : 1;
-  if (nextId < 1 || isNaN(nextId)) nextId = 1;
-
-  return verifiedList.map((item) => {
-    if (item.id === -1) {
-      const newId = nextId++;
-      return { ...item, id: newId };
-    }
-    return item;
-  });
-}
-
-function upgradeAndNormalizeZas(rawZas: Zahlungsanforderung[]): Zahlungsanforderung[] {
-  const baseList = Array.isArray(rawZas) && rawZas.length > 0 ? rawZas : INITIAL_ZAS;
-
-  // Upgrade historical 2026 ZAs if stored version had incomplete 0-euro placeholders (!belegVollstaendig)
-  const upgraded = baseList.map((z) => {
-    const seedMatch = INITIAL_ZAS.find(
-      (s) =>
-        s.datum.trim() === String(z?.datum || '').trim() ||
-        s.bezeichnung.toLowerCase().trim() === String(z?.bezeichnung || '').toLowerCase().trim()
-    );
-    if (seedMatch && !z.belegVollstaendig) {
-      return {
-        ...seedMatch,
-        id: z.id || seedMatch.id,
-      };
-    }
-    return {
-      ...z,
-      istJePosition: normalizeProfiAmounts(z.istJePosition),
-      vorschauJePosition: normalizeProfiAmounts(z.vorschauJePosition),
-    };
-  });
-
-  const existingKeys = new Set(
-    upgraded.map((z) => `${String(z?.datum || '').trim()}::${String(z?.bezeichnung || '').toLowerCase().trim()}`)
-  );
-  const missing = INITIAL_ZAS.filter(
-    (seed) =>
-      !existingKeys.has(`${seed.datum.trim()}::${seed.bezeichnung.toLowerCase().trim()}`) &&
-      !upgraded.some((u) => u.datum === seed.datum)
-  );
-
-  return sanitizeAndDeduplicate([...upgraded, ...missing], INITIAL_ZAS).map((z) => ({
-    ...z,
-    istJePosition: normalizeProfiAmounts(z.istJePosition),
-    vorschauJePosition: normalizeProfiAmounts(z.vorschauJePosition),
-  }));
-}
-
-function normalizePersonalList(raw: PersonalEintrag[]): PersonalEintrag[] {
-  const loaded = sanitizeAndDeduplicate(raw, INITIAL_PERSONAL);
-  return loaded.map((p) => {
-    const ff = p.foerderfaehig || addEuro(p.agKosten || 0, p.sachkosten || 0);
-    const bafa = mulPercent(ff, 90);
-    const eigen = subEuro(ff, bafa);
-    return {
-      ...p,
-      foerderfaehig: ff,
-      bafaAnteil: bafa,
-      lhoAnteil: 0,
-      eigenaufwand: eigen,
-    };
-  });
-}
-
-function normalizeRechnungenList(raw: Rechnungsbeleg[]): Rechnungsbeleg[] {
-  const loaded = sanitizeAndDeduplicate(raw, INITIAL_RECHNUNGEN);
-  return loaded.map((r) => ({
-    ...r,
-    mwstSatz:
-      r.mwstSatz !== undefined
-        ? r.mwstSatz
-        : r.betragBrutto > (r.betragNetto || 0) + 0.01
-        ? 19
-        : 'brutto',
-  }));
-}
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -364,15 +268,6 @@ export default function App() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Server Hybrid Persistence status
-  const [serverSyncStatus, setServerSyncStatus] = useState<'synced' | 'saving' | 'offline' | 'conflict'>('offline');
-  const [lastServerSync, setLastServerSync] = useState<string | null>(null);
-  // Letzter bekannter Server-Stand (für die Versionsprüfung beim Speichern, ohne veraltete Closure)
-  const lastServerSyncRef = React.useRef<string | null>(null);
-  const markServerSynced = (iso: string) => {
-    lastServerSyncRef.current = iso;
-    setLastServerSync(iso);
-  };
   const skipNextPushRef = useRef(false);
   const isMountedRef = useRef(false);
 
@@ -518,24 +413,24 @@ export default function App() {
   };
 
   // Auto-Persist to localStorage
-  useEffect(() => { saveToStorage(STORAGE_KEYS.settings, settings); }, [settings]);
-  useEffect(() => { saveToStorage(STORAGE_KEYS.mitarbeiterStamm, mitarbeiterStamm); }, [mitarbeiterStamm]);
-  useEffect(() => { saveToStorage('midpct_mitarbeiter_list', mitarbeiterList); }, [mitarbeiterList]);
-  useEffect(() => { saveToStorage('midpct_personal', personal); }, [personal]);
-  useEffect(() => { saveToStorage('midpct_rechnungen', rechnungen); }, [rechnungen]);
-  useEffect(() => { saveToStorage('midpct_mittelabrufe', mittelabrufe); }, [mittelabrufe]);
-  useEffect(() => { saveToStorage('midpct_zas', zas); }, [zas]);
-  useEffect(() => { saveToStorage('midpct_vergaben', vergaben); }, [vergaben]);
-  useEffect(() => { saveToStorage('midpct_oekoprofit_checkups', oekoprofitCheckups); }, [oekoprofitCheckups]);
-  useEffect(() => { saveToStorage('midpct_partners', partners); }, [partners]);
-  useEffect(() => { saveToStorage('midpct_tasks', tasks); }, [tasks]);
-  useEffect(() => { saveToStorage('midpct_matches', matches); }, [matches]);
-  useEffect(() => { saveToStorage('midpct_buchungen', buchungen); }, [buchungen]);
-  useEffect(() => { saveToStorage('midpct_uc_notes', ucNotes); }, [ucNotes]);
-  useEffect(() => { saveToStorage('midpct_uc_invoices', ucInvoices); }, [ucInvoices]);
-  useEffect(() => { saveToStorage('midpct_audit_logs', logs); }, [logs]);
-  useEffect(() => { saveToStorage('midpct_usecases', usecases); }, [usecases]);
-  useEffect(() => { saveToStorage('midpct_deleted_usecases', deletedUcs); }, [deletedUcs]);
+  useAutoSave(STORAGE_KEYS.settings, settings);
+  useAutoSave(STORAGE_KEYS.mitarbeiterStamm, mitarbeiterStamm);
+  useAutoSave('midpct_mitarbeiter_list', mitarbeiterList);
+  useAutoSave('midpct_personal', personal);
+  useAutoSave('midpct_rechnungen', rechnungen);
+  useAutoSave('midpct_mittelabrufe', mittelabrufe);
+  useAutoSave('midpct_zas', zas);
+  useAutoSave('midpct_vergaben', vergaben);
+  useAutoSave('midpct_oekoprofit_checkups', oekoprofitCheckups);
+  useAutoSave('midpct_partners', partners);
+  useAutoSave('midpct_tasks', tasks);
+  useAutoSave('midpct_matches', matches);
+  useAutoSave('midpct_buchungen', buchungen);
+  useAutoSave('midpct_uc_notes', ucNotes);
+  useAutoSave('midpct_uc_invoices', ucInvoices);
+  useAutoSave('midpct_audit_logs', logs);
+  useAutoSave('midpct_usecases', usecases);
+  useAutoSave('midpct_deleted_usecases', deletedUcs);
 
   const applyFullStateSnapshot = (snap: any, logSnapshot: boolean = false) => {
     if (!snap || typeof snap !== 'object') return;
@@ -593,161 +488,34 @@ export default function App() {
     achievementUnlocks: achievementUnlocks ?? [],
   });
 
-  // Initial server hydration check (only when served via http(s) and no offline injection)
-  useEffect(() => {
-    if (typeof window === 'undefined' || window.location.protocol === 'file:' || injected) {
-      setServerSyncStatus('offline');
-      isMountedRef.current = true;
-      return;
-    }
-
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetch('/api/state');
-        if (!res.ok) {
-          if (!cancelled) setServerSyncStatus('offline');
-          isMountedRef.current = true;
-          return;
-        }
-        const data = await res.json();
-        if (cancelled) return;
-        if (data?.state) {
-          const localLastModified = localStorage.getItem('midpct_last_local_modified') || '';
-          const serverUpdatedAt = data.updatedAt || data.state.updatedAt || '';
-          if (!localLastModified || (serverUpdatedAt && serverUpdatedAt > localLastModified)) {
-            applyFullStateSnapshot(data.state, false);
-          }
-          markServerSynced(serverUpdatedAt || new Date().toISOString());
-          setServerSyncStatus('synced');
-        } else {
-          // Server has no file yet: seed it immediately with current client state
-          const pushRes = await fetch('/api/state', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ state: buildStatePayload() }),
-          });
-          if (pushRes.ok) {
-            const pData = await pushRes.json();
-            markServerSynced(pData.updatedAt || new Date().toISOString());
-            setServerSyncStatus('synced');
-          } else {
-            setServerSyncStatus('offline');
-          }
-        }
-      } catch {
-        if (!cancelled) setServerSyncStatus('offline');
-      } finally {
-        isMountedRef.current = true;
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Debounced auto-push to /api/state whenever data changes
-  useEffect(() => {
-    if (!isMountedRef.current) return;
-    localStorage.setItem('midpct_last_local_modified', new Date().toISOString());
-
-    if (skipNextPushRef.current) {
-      skipNextPushRef.current = false;
-      return;
-    }
-    if (typeof window === 'undefined' || window.location.protocol === 'file:') {
-      return;
-    }
-
-    setServerSyncStatus('saving');
-    const timer = setTimeout(async () => {
-      try {
-        const res = await fetch('/api/state', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            state: buildStatePayload(),
-            baseUpdatedAt: lastServerSyncRef.current,
-          }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          markServerSynced(data.updatedAt || new Date().toISOString());
-          setServerSyncStatus('synced');
-        } else if (res.status === 409) {
-          // Neuerer Stand auf dem Server: nicht überschreiben, Nutzer entscheidet in den Einstellungen
-          setServerSyncStatus('conflict');
-        } else {
-          setServerSyncStatus('offline');
-        }
-      } catch {
-        setServerSyncStatus('offline');
-      }
-    }, 800);
-
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    personal,
-    rechnungen,
-    mittelabrufe,
-    zas,
-    vergaben,
-    oekoprofitCheckups,
-    partners,
-    matches,
-    buchungen,
-    tasks,
-    mitarbeiterList,
-    mitarbeiterStamm,
-    settings,
-    ucNotes,
-    ucInvoices,
-    usecases,
-    deletedUcs,
-    logs,
-    achievementUnlocks,
-  ]);
-
-  const handleSyncWithServer = async (direction: 'push' | 'pull'): Promise<{ ok: boolean; message: string }> => {
-    if (typeof window === 'undefined' || window.location.protocol === 'file:') {
-      return { ok: false, message: 'Im Offline-HTML-Modus (file://) steht kein lokaler Express-Server zur Verfügung.' };
-    }
-    try {
-      if (direction === 'push') {
-        setServerSyncStatus('saving');
-        const res = await fetch('/api/state', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ state: buildStatePayload() }),
-        });
-        if (!res.ok) {
-          if (res.status === 401) throw new Error('Anmeldung am Server erforderlich.');
-          throw new Error('Serverfehler beim Speichern');
-        }
-        const data = await res.json();
-        markServerSynced(data.updatedAt || new Date().toISOString());
-        setServerSyncStatus('synced');
-        return { ok: true, message: `Server-Persistenz erfolgreich aktualisiert (data/midpct_db.json).` };
-      } else {
-        const res = await fetch('/api/state');
-        if (!res.ok) throw new Error('Server nicht erreichbar');
-        const data = await res.json();
-        if (!data?.state) {
-          return { ok: false, message: 'Auf dem Server existiert noch kein gespeicherter Stand.' };
-        }
-        applyFullStateSnapshot(data.state, false);
-        markServerSynced(data.updatedAt || new Date().toISOString());
-        setServerSyncStatus('synced');
-        return { ok: true, message: 'Datenstand erfolgreich aus Server-Datenbank (data/midpct_db.json) geladen.' };
-      }
-    } catch (err: any) {
-      setServerSyncStatus('offline');
-      return { ok: false, message: err?.message || 'Verbindung zum Server fehlgeschlagen.' };
-    }
-  };
+  const { serverSyncStatus, lastServerSync, handleSyncWithServer } = useServerSync({
+    isInjected: Boolean(injected),
+    buildStatePayload,
+    applyFullStateSnapshot,
+    skipNextPushRef,
+    isMountedRef,
+    dataDeps: [
+      personal,
+      rechnungen,
+      mittelabrufe,
+      zas,
+      vergaben,
+      oekoprofitCheckups,
+      partners,
+      matches,
+      buchungen,
+      tasks,
+      mitarbeiterList,
+      mitarbeiterStamm,
+      settings,
+      ucNotes,
+      ucInvoices,
+      usecases,
+      deletedUcs,
+      logs,
+      achievementUnlocks,
+    ],
+  });
 
   // Listener for Ctrl+K and Escape
   useEffect(() => {
@@ -1709,129 +1477,11 @@ export default function App() {
     applyFullStateSnapshot(snap, true);
   };
 
-  // Global search matching across collections (Strg+K)
-  const getSearchResults = () => {
-    const q = searchQuery.toLowerCase().trim();
-    if (!q) return [];
-
-    const results: { text: string; page: string; category: string }[] = [];
-
-    rechnungen.forEach((r) => {
-      const rechnungsnummer = r.rechnungsnummer || '';
-      const rechnungssteller = r.rechnungssteller || '';
-      const kostenkategorie = r.kostenkategorie || '';
-      const beschreibung = r.leistungsbeschreibung || '';
-
-      if (
-        rechnungsnummer.toLowerCase().includes(q) ||
-        rechnungssteller.toLowerCase().includes(q) ||
-        kostenkategorie.toLowerCase().includes(q) ||
-        beschreibung.toLowerCase().includes(q)
-      ) {
-        results.push({
-          text: `Rechnung #${rechnungsnummer} von ${rechnungssteller} (${kostenkategorie})`,
-          page: 'rechnungen',
-          category: 'Rechnungsbelege',
-        });
-      }
-    });
-
-    personal.forEach((p) => {
-      const mitarbeiter = p.mitarbeiter || '';
-      const bemerkung = p.bemerkung || '';
-      if (mitarbeiter.toLowerCase().includes(q) || bemerkung.toLowerCase().includes(q)) {
-        results.push({
-          text: `Mitarbeiter-Eintrag: ${mitarbeiter} (Jahr ${p.foerderjahr || ''}, Q${p.quartal || ''})`,
-          page: 'personal',
-          category: 'Personalbelege',
-        });
-      }
-    });
-
-    vergaben.forEach((v) => {
-      const titel = v.titel || '';
-      const auftragnehmer = v.auftragnehmer || '';
-      const vergabeart = v.vergabeart || '';
-      const notizen = v.notizen || '';
-
-      if (
-        titel.toLowerCase().includes(q) ||
-        auftragnehmer.toLowerCase().includes(q) ||
-        vergabeart.toLowerCase().includes(q) ||
-        notizen.toLowerCase().includes(q)
-      ) {
-        results.push({
-          text: `Ausschreibung: ${titel} (Bieter: ${auftragnehmer || 'keiner'})`,
-          page: 'vergaben',
-          category: 'Ausschreibungen/Vergabe',
-        });
-      }
-    });
-
-    usecases.forEach((u) => {
-      const titel = u.titel || '';
-      const unternehmen = u.unternehmen || '';
-      const ansprechpartner = u.ansprechpartner || '';
-      const branche = u.branche || '';
-      const notizen = u.notizen || '';
-
-      if (
-        titel.toLowerCase().includes(q) ||
-        unternehmen.toLowerCase().includes(q) ||
-        ansprechpartner.toLowerCase().includes(q) ||
-        branche.toLowerCase().includes(q) ||
-        notizen.toLowerCase().includes(q)
-      ) {
-        results.push({
-          text: `Use-Case: ${titel} (${unternehmen})`,
-          page: 'usecase',
-          category: 'Transformationspiloten',
-        });
-      }
-    });
-
-    oekoprofitCheckups.forEach((c) => {
-      const startup = c.startupName || '';
-      const berater = c.berater || '';
-      const branche = c.branche || '';
-      if (
-        startup.toLowerCase().includes(q) ||
-        berater.toLowerCase().includes(q) ||
-        branche.toLowerCase().includes(q) ||
-        'oekoprofit'.includes(q) ||
-        'ökoprofit'.includes(q) ||
-        'transformationsbooster'.includes(q)
-      ) {
-        results.push({
-          text: `Ökoprofit-Checkup: ${startup} (${berater || 'Berater offen'} · ${c.status})`,
-          page: 'vergaben',
-          category: 'Ökoprofit / Pos. 0835',
-        });
-      }
-    });
-
-    zas.forEach((z) => {
-      const bez = z.bezeichnung || '';
-      const dat = z.datum || '';
-      if (
-        bez.toLowerCase().includes(q) ||
-        dat.toLowerCase().includes(q) ||
-        'za'.includes(q) ||
-        'profi-online'.includes(q) ||
-        'zeile 19'.includes(q)
-      ) {
-        results.push({
-          text: `Zahlungsanforderung: ${bez} (${dat})`,
-          page: 'mittelabrufe',
-          category: 'profi-online ZA',
-        });
-      }
-    });
-
-    return results.slice(0, 8);
-  };
-
-  const results = getSearchResults();
+  // Globale Suche (Strg+K)
+  const results = useMemo(
+    () => searchErp(searchQuery, { rechnungen, personal, vergaben, usecases, oekoprofitCheckups, zas }),
+    [searchQuery, rechnungen, personal, vergaben, usecases, oekoprofitCheckups, zas]
+  );
 
   const activeYearLabel =
     activeYear === null
@@ -2510,71 +2160,19 @@ export default function App() {
         <AchievementToastStack items={achievementToasts} onDismiss={dismissAchievementToast} />
       )}
 
-      {/* ── MODAL: GLOBAL SEARCH MODAL (Ctrl+K overlay) ── */}
+      {/* Globale Suche (Strg+K) */}
       {searchOpen && (
-        <div
-          className="fixed inset-0 bg-[#041422]/60 backdrop-blur-xs flex items-center justify-center z-50 p-4"
-          onClick={() => setSearchOpen(false)}
-        >
-          <div
-            className="bg-white rounded-2xl border border-zinc-200 shadow-2xl max-w-lg w-full overflow-hidden animate-fade-in animate-scale-up"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="p-4 border-b border-zinc-200 flex items-center gap-3">
-              <Search className="w-5 h-5 text-zinc-400" />
-              <input
-                type="text"
-                autoFocus
-                placeholder="Suchen... (Abrufnummer, Name, Kreditor, ZA)"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full text-xs font-sans outline-none text-zinc-800"
-              />
-              <kbd className="px-2 py-0.5 rounded border border-zinc-200 bg-zinc-50 font-mono text-[9px] text-[#041422] font-semibold">
-                ESC
-              </kbd>
-            </div>
-
-            <div className="p-2 max-h-72 overflow-y-auto pr-1">
-              {searchQuery.trim() === '' ? (
-                <div className="py-8 text-center text-xs text-zinc-400 font-mono">
-                  Geben Sie ein Suchwort ein, um ERP-Sammlungen nachzuschlagen.
-                </div>
-              ) : results.length === 0 ? (
-                <div className="py-8 text-center text-xs text-zinc-400 font-mono">
-                  Keine Übereinstimmungen gefunden.
-                </div>
-              ) : (
-                <div className="space-y-0.5">
-                  {results.map((res, idx) => (
-                    <div
-                      key={idx}
-                      onClick={() => {
-                        setActivePage(res.page);
-                        setSearchOpen(false);
-                        setSearchQuery('');
-                      }}
-                      className="flex justify-between items-center p-2.5 rounded-lg hover:bg-zs-signal-gelb/25 cursor-pointer text-xs transition-all border border-transparent hover:border-zinc-200"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="text-[10px] font-mono font-bold bg-[#041422]/10 px-2 py-0.5 rounded text-zs-blau-schwarz text-left">
-                          {res.category}
-                        </span>
-                        <span className="text-zinc-700 font-medium truncate max-w-[280px]">{res.text}</span>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-zinc-400" />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="p-3 border-t border-zinc-200 bg-zinc-50/50 flex justify-between text-[9px] font-mono text-zinc-400">
-              <span>Navigieren Sie per Mausklick</span>
-              <span>Made in Düren &bull; WIN.DN</span>
-            </div>
-          </div>
-        </div>
+        <GlobalSearchModal
+          query={searchQuery}
+          results={results}
+          onQueryChange={setSearchQuery}
+          onSelect={(page) => {
+            setActivePage(page);
+            setSearchOpen(false);
+            setSearchQuery('');
+          }}
+          onClose={() => setSearchOpen(false)}
+        />
       )}
     </div>
   );
